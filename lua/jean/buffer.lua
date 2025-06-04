@@ -54,13 +54,42 @@ function Buffer:get_lines()
   return vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
 end
 
+---Returns a relative path string if this buffer's file lives under
+---relative_root, else the absolute path to this buffer's file
+---@path relative_root string
+---@return string
+function Buffer:get_relative_path(relative_root)
+  local absolute_path = vim.api.nvim_buf_get_name(self.bufnr)
+  if vim.startswith(absolute_path, relative_root) then
+    return '.' .. string.sub(absolute_path, #relative_root + 1)
+  end
+  return absolute_path
+end
+
 function Buffer:move_cursor_to_end()
   local line_count = vim.api.nvim_buf_line_count(self.bufnr)
   local last_line = vim.api.nvim_buf_get_lines(self.bufnr, line_count - 1, line_count, false)[1] or ''
-  local win = require 'jean.window'.for_session_id(self.vars.jean_session_id)
-  if win then
+  local win = self:window()
+  if win and win.winnr then
     vim.api.nvim_win_set_cursor(win.winnr, { line_count, #last_line })
   end
+end
+
+---Return the associated Session Window, if any
+---@return Window|nil
+function Buffer:session_window()
+  return require('jean.window').for_session_id(self.vars.jean_session_id)
+end
+
+---Return "some" window
+---@return Window|nil
+function Buffer:window()
+  local session_win = self:session_window()
+  if session_win then
+    return session_win
+  end
+
+  -- TODO: ...
 end
 
 return Buffer

@@ -11,6 +11,9 @@ local GLOBAL_SESSION_ID = '__GLOBAL__'
 ---@field id string
 ---@field history SessionHistoryEntry[]
 ---@field claude_session_id string|nil
+---@field last_context string|nil
+---@field last_buffer Buffer|nil
+---@field last_buffer_winid number|nil
 ---@field pwd string
 local Session = {}
 
@@ -50,7 +53,7 @@ end
 
 ---@param prompt string
 function Session:submit_prompt(prompt)
-  local initial_win = require('jean.window').for_session_id(self.id)
+  local initial_win = self:window()
   if not initial_win then
     error('No window in which to submit prompt...')
     return
@@ -66,10 +69,19 @@ function Session:submit_prompt(prompt)
   })
   -- TODO: Can we do some kind of progress spinner?
 
+  local context = require('jean.context').build(self)
+  local to_send = prompt
+  if self.last_context ~= context then
+    if context then
+      to_send = context .. '\n\n' .. to_send
+    end
+    self.last_context = context
+  end
+
   local Claude = require('jean.session.claude')
   local cli = Claude:new({
     claude_session_id = self.claude_session_id,
-    prompt = prompt,
+    prompt = to_send,
     pwd = self.pwd,
   })
 
@@ -88,6 +100,10 @@ function Session:submit_prompt(prompt)
       self:_process_entry(win, entry)
     end),
   })
+end
+
+function Session:window()
+  return require('jean.window').for_session_id(self.id)
 end
 
 local M = {
@@ -132,12 +148,12 @@ function M.from_buffer(bufnr)
   end
   for _, client in ipairs(clients) do
     if client.root_dir then
-      return M._get_or_create(client.root_dir)
+      return M._get_or_create(client.root_dir, client.root_dir)
     end
   end
 
   local pwd = vim.fn.getcwd()
-  return M._get_or_create(pwd)
+  return M._get_or_create(pwd, pwd)
 end
 
 return M

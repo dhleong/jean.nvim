@@ -76,6 +76,11 @@ function Window:new(opts)
   return instance
 end
 
+---@return Session
+function Window:get_session()
+  return require('jean.session').from_buffer(self.bufnr)
+end
+
 function Window:hide()
   if self.winnr and vim.api.nvim_win_is_valid(self.winnr) then
     vim.api.nvim_win_hide(self.winnr)
@@ -88,6 +93,10 @@ function Window:show()
     -- Already open
     return
   end
+
+  local session = self:get_session()
+  session.last_buffer = require('jean.buffer'):from_nr(vim.fn.bufnr('%'))
+  session.last_buffer_winid = vim.api.nvim_get_current_win()
 
   local width = math.floor(vim.o.columns * 0.4)
   local height = math.floor(vim.o.lines * 0.9)
