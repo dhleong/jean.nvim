@@ -5,28 +5,30 @@
 ---@field o vim.bo
 local Buffer = {}
 
+---Table of getter properties for Buffer instances
+---@type table<string, fun(number): any>
+local Getters = {
+  o = function(bufnr)
+    return vim.bo[bufnr]
+  end,
+  session = function(bufnr)
+    return require('jean.session').from_buffer(bufnr)
+  end,
+  vars = function(bufnr)
+    return vim.b[bufnr]
+  end,
+}
+
 function Buffer:from_nr(bufnr)
-  local instance = {
-    bufnr = bufnr,
-    o = vim.bo[bufnr],
-    vars = setmetatable({}, {
-      __index = function(_, k)
-        return vim.b[bufnr][k]
-      end,
-      __newindex = function(_, k, v)
-        vim.b[bufnr][k] = v
-      end,
-    }),
-  }
+  local instance = { bufnr = bufnr }
   setmetatable(instance, self)
-  -- self.__index = self
   return instance
 end
 
 function Buffer:__index(key)
-  print('__index', key)
-  if key == 'session' then
-    return require 'jean.session'.from_buffer(self.bufnr)
+  local getter = Getters[key]
+  if getter then
+    return getter(self.bufnr)
   else
     return rawget(Buffer, key)
   end
