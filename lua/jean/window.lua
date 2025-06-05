@@ -46,11 +46,6 @@ local function configure_buffer(buf)
 
     buf.session:submit_prompt(text)
   end, { buffer = buf.bufnr, desc = 'Submit prompt' })
-
-  vim.schedule(function()
-    -- Move cursor to end *later* since the window "doesn't exist" yet
-    buf:move_cursor_to_end()
-  end)
 end
 
 ---@class Window
@@ -71,6 +66,11 @@ function Window:new(opts)
     self.buffer.vars.jean_session_id = opts.session_id
 
     configure_buffer(self.buffer)
+
+    -- NOTE: The window isn't shown yet; wait until it is to move the cursor
+    vim.schedule(function()
+      instance:move_cursor_to_end()
+    end)
   end
 
   return instance
@@ -117,6 +117,20 @@ function Window:show()
   })
 end
 
+---@param lines string|string[]
+function Window:append_lines_and_follow(lines)
+  self.buffer:append_lines(lines)
+  self:move_cursor_to_end() -- TODO: Maybe only if already at end?
+end
+
+function Window:move_cursor_to_end()
+  if self.winnr then
+    local line_count = vim.api.nvim_buf_line_count(self.bufnr)
+    local last_line = vim.api.nvim_buf_get_lines(self.bufnr, line_count - 1, line_count, false)[1] or ''
+    vim.api.nvim_win_set_cursor(self.winnr, { line_count, #last_line })
+  end
+end
+
 ---@param session Session
 ---@return Window
 function M._get_or_create(session)
@@ -141,10 +155,14 @@ function M.for_session_id(session_id)
 end
 
 ---@param session Session
-function M.open(session)
+---@param opts? { startinsert: boolean }
+function M.open(session, opts)
   local win = M._get_or_create(session)
   win:show()
-  vim.cmd.startinsert()
+  if not opts or opts.startinsert then
+    vim.cmd.startinsert()
+  end
+  return win
 end
 
 return M

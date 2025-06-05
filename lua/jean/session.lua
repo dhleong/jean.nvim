@@ -32,8 +32,7 @@ function Session:_process_entry(win, entry)
   -- Disable editing in the buffer while producing output
   if entry.type == 'result' then
     win.buffer.o.modifiable = true
-    win.buffer:append_lines({ '', require('jean.config').request_separator, '', '' })
-    win.buffer:move_cursor_to_end()
+    win:append_lines_and_follow({ '', require('jean.config').request_separator, '', '' })
   end
 
   if entry.type == 'system' then
@@ -44,8 +43,7 @@ function Session:_process_entry(win, entry)
   if entry.type == 'assistant' and entry.message and entry.message.content then
     for _, content in ipairs(entry.message.content) do
       if content.type == 'text' then
-        win.buffer:append_lines(vim.split(content.text, '\n'))
-        win.buffer:move_cursor_to_end()
+        win:append_lines_and_follow(vim.split(content.text, '\n'))
       end
     end
   end
@@ -61,7 +59,7 @@ function Session:submit_prompt(prompt)
 
   -- Disable modification while we process
   initial_win.buffer.o.modifiable = false
-  initial_win.buffer:append_lines({
+  initial_win:append_lines_and_follow({
     '',
     '## Response',
     '> ' .. table.concat(vim.split(prompt, '\n'), '> '),

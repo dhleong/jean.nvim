@@ -34,8 +34,11 @@ function Buffer:__index(key)
   end
 end
 
----@param lines string[]
+---@param lines string[]|string
 function Buffer:append_lines(lines)
+  if type(lines) == 'string' then
+    lines = vim.split(lines, '\n')
+  end
   local was_modifiable = self.o.modifiable
   self.o.modifiable = true
   vim.api.nvim_buf_set_lines(self.bufnr, -1, -1, false, lines)
@@ -66,15 +69,6 @@ function Buffer:get_relative_path(relative_root)
     return '.' .. string.sub(absolute_path, #relative_root + 1)
   end
   return absolute_path
-end
-
-function Buffer:move_cursor_to_end()
-  local line_count = vim.api.nvim_buf_line_count(self.bufnr)
-  local last_line = vim.api.nvim_buf_get_lines(self.bufnr, line_count - 1, line_count, false)[1] or ''
-  local win = self:window()
-  if win and win.winnr then
-    vim.api.nvim_win_set_cursor(win.winnr, { line_count, #last_line })
-  end
 end
 
 ---Return the associated Session Window, if any

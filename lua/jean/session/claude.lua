@@ -32,9 +32,6 @@ function Claude:start(opts)
     vim.list_extend(cmd, { '--resume', self.claude_session_id })
   end
 
-  print('cmd=', vim.inspect(cmd))
-  print('cwd=', vim.inspect(self.pwd))
-  print('prompt=', vim.inspect(self.prompt))
   local output = ''
   self._process = vim.system(cmd, {
     cwd = self.pwd,
