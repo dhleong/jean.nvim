@@ -19,7 +19,7 @@ end
 
 function Claude:stop()
   if self._process then
-    self._process:kill()
+    self._process:kill('sigterm')
     self._process = nil
   end
 end
