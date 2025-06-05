@@ -180,10 +180,12 @@ function Session:submit_prompt(prompt)
       initial_win.buffer.o.modifiable = true
 
       -- Show the qflist if we added anything to it
-      -- TODO: Also get the list of files in qflist and reload any modified buffers
       local qf = vim.fn.getqflist({ size = true })
       if qf.size > 0 then
         vim.cmd.copen()
+
+        -- Reload any modified buffers
+        vim.cmd.checktime()
       end
     end),
 
