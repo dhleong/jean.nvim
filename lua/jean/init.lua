@@ -2,7 +2,10 @@ local M = {}
 
 function M.prompt()
   local session = require('jean.session').from_buffer()
-  require('jean.window').open(session)
+  local window = require('jean.window').open(session)
+
+  -- Always move the cursor to the end to be ready for input
+  window:move_cursor_to_end()
 end
 
 ---@param prompt string
