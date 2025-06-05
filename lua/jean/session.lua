@@ -64,6 +64,7 @@ end
 function Session:_process_tool_use(win, tool)
   if tool.name == 'Edit' then
     -- Search for old_string in file_path and add the line to qf
+    -- FIXME: We need to look for the *first line* in old_string
     local bufnr, file_lines = read_file(tool.input.file_path)
     local index, found = vim.iter(ipairs(file_lines)):find(function(_, line)
       return line == tool.input.old_string
@@ -177,6 +178,7 @@ function Session:submit_prompt(prompt)
       initial_win.buffer.o.modifiable = true
 
       -- Show the qflist if we added anything to it
+      -- TODO: Also get the list of files in qflist and reload any modified buffers
       local qf = vim.fn.getqflist({ size = true })
       if qf.size > 0 then
         vim.cmd.copen()
