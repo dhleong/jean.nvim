@@ -32,6 +32,18 @@ function Claude:start(opts)
     vim.list_extend(cmd, { '--resume', self.claude_session_id })
   end
 
+  -- TODO: Diff UI? MultiEdit might be hard...
+  vim.list_extend(cmd, {
+    '--allowedTools',
+    table.concat({
+      'Edit',
+      'MultiEdit',
+      'WebFetch',
+      'WebSearch',
+      'Write',
+    }, ','),
+  })
+
   local output = ''
   self._process = vim.system(cmd, {
     cwd = self.pwd,
