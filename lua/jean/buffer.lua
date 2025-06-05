@@ -60,6 +60,11 @@ function Buffer:get_lines()
   return vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
 end
 
+---@param lines string[]
+function Buffer:set_lines(lines)
+  return vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
+end
+
 ---Returns a relative path string if this buffer's file lives under
 ---relative_root, else the absolute path to this buffer's file
 ---@path relative_root string

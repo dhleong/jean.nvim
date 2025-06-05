@@ -152,7 +152,9 @@ function Session:submit_prompt(prompt)
     '> ' .. table.concat(vim.split(prompt, '\n'), '> '),
     '',
   })
-  -- TODO: Can we do some kind of progress spinner?
+
+  -- Show a spinner by the cursor while Claude thinks
+  local spinner = require('jean.spinner'):new()
 
   local context = require('jean.context').build(self)
   local to_send = prompt
@@ -190,6 +192,9 @@ function Session:submit_prompt(prompt)
     on_exit = vim.schedule_wrap(function()
       -- Ensure we're readable
       initial_win.buffer.o.modifiable = true
+
+      -- Clean up the spinner
+      spinner:destroy()
 
       -- Show the qflist if we added anything to it
       local qf = vim.fn.getqflist({ size = true })
