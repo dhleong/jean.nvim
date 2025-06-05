@@ -10,13 +10,26 @@ local function configure_buffer(buf)
   buf:append_lines({ require('jean.config').request_separator, '', '' })
   buf:delete_lines(0, 1)
 
-  vim.keymap.set('n', 'q', function()
+  ---@return Window|nil
+  local function win()
     local session_id = buf.vars.jean_session_id
-    local window = M._by_session[session_id]
+    return M._by_session[session_id]
+  end
+
+  vim.keymap.set('n', 'q', function()
+    local window = win()
     if window then
       window:hide()
     end
   end, { buffer = buf.bufnr, desc = 'Hide the window' })
+
+  vim.keymap.set('n', '<c-c>', function()
+    local window = win()
+    if window then
+      local session = window:get_session()
+      session:cancel_active_prompt()
+    end
+  end, { buffer = buf.bufnr, desc = 'Cancel any running prompt' })
 
   vim.keymap.set({ 'i', 'n' }, '<cr>', function()
     if vim.fn.mode() ~= 'n' then
@@ -55,6 +68,7 @@ end
 ---@field buffer Buffer
 local Window = {}
 
+---@return Window
 function Window:new(opts)
   local instance = vim.tbl_extend('keep', {}, opts)
   setmetatable(instance, self)
@@ -151,7 +165,10 @@ end
 ---@param session_id string
 ---@return Window|nil
 function M.for_session_id(session_id)
-  return M._by_session[session_id]
+  local window = M._by_session[session_id]
+  if window and window.winnr then
+    return window
+  end
 end
 
 ---@param session Session

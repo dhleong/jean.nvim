@@ -2,8 +2,6 @@
 
 ---@alias ClaudeStartOpts {on_entry: fun(entry: table)}
 
-local exe_path = nil
-
 ---@class Claude
 ---@field pwd string
 ---@field prompt string
@@ -11,6 +9,7 @@ local exe_path = nil
 local Claude = {}
 
 ---@param opts ClaudeOpts
+---@return Claude
 function Claude:new(opts)
   local instance = vim.tbl_extend('keep', {}, opts)
   setmetatable(instance, self)
@@ -20,7 +19,7 @@ end
 
 function Claude:stop()
   if self._process then
-    self._process:kill('KILL')
+    self._process:kill()
     self._process = nil
   end
 end

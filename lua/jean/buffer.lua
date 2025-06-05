@@ -19,6 +19,7 @@ local Getters = {
   end,
 }
 
+---@return Buffer
 function Buffer:from_nr(bufnr)
   local instance = { bufnr = bufnr }
   setmetatable(instance, self)
@@ -71,21 +72,10 @@ function Buffer:get_relative_path(relative_root)
   return absolute_path
 end
 
----Return the associated Session Window, if any
+---Return the associated Session Window, if any active and valid
 ---@return Window|nil
 function Buffer:session_window()
   return require('jean.window').for_session_id(self.vars.jean_session_id)
-end
-
----Return "some" window
----@return Window|nil
-function Buffer:window()
-  local session_win = self:session_window()
-  if session_win then
-    return session_win
-  end
-
-  -- TODO: ...
 end
 
 return Buffer

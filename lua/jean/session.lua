@@ -12,11 +12,13 @@ local GLOBAL_SESSION_ID = '__GLOBAL__'
 ---@field history SessionHistoryEntry[]
 ---@field claude_session_id string|nil
 ---@field last_context string|nil
+---@field last_cli Claude|nil
 ---@field last_buffer Buffer|nil
 ---@field last_buffer_winid number|nil
 ---@field pwd string
 local Session = {}
 
+---@return Session
 function Session:new(opts)
   local instance = vim.tbl_extend('keep', {
     history = {},
@@ -42,6 +44,7 @@ function Session:_process_entry(win, entry)
   if entry.type == 'result' then
     win.buffer.o.modifiable = true
     win:append_lines_and_follow({ '', require('jean.config').request_separator, '', '' })
+    self.last_cli = nil
   end
 
   if entry.type == 'system' then
@@ -57,6 +60,31 @@ function Session:_process_entry(win, entry)
         self:_process_tool_use(win, content)
       end
     end
+  end
+end
+
+---@return boolean did_cancel *if* we canceled something
+function Session:cancel_active_prompt()
+  local cli = self.last_cli
+  self.last_cli = nil
+  if cli then
+    cli:stop()
+
+    local win = self:window()
+    if win then
+      win.buffer.o.modifiable = true
+      win:append_lines_and_follow({
+        '',
+        'Execution canceled.',
+        '',
+        require('jean.config').request_separator,
+        '',
+        '',
+      })
+    end
+    return true
+  else
+    return false
   end
 end
 
@@ -93,15 +121,16 @@ function Session:submit_prompt(prompt)
     prompt = to_send,
     pwd = self.pwd,
   })
+  self.last_cli = cli
 
   cli:start({
     -- TODO: On error, restore modifiable
 
     on_entry = vim.schedule_wrap(function(entry)
-      local win = require('jean.window').for_session_id(self.id)
+      local win = self:window()
       if not win then
         -- Stop early
-        cli:cancel()
+        self:cancel_active_prompt()
         return
       end
 
