@@ -35,6 +35,7 @@ function Claude:start(opts)
   vim.list_extend(cmd, {
     '--allowedTools',
     table.concat({
+      'Read',
       'Edit',
       'MultiEdit',
       'WebFetch',
