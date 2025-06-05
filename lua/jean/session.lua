@@ -2,6 +2,11 @@ local GLOBAL_SESSION_ID = '__GLOBAL__'
 
 ---@alias ClaudeAssistantMessage table<string, any>
 
+---@class QflistEntry
+---@field bufnr? number
+---@field filename? string
+---@field lnum? number
+
 ---@class SessionHistoryEntry
 ---@field type "system"|"assistant"|"result"
 ---@field message ClaudeAssistantMessage|nil
@@ -28,11 +33,51 @@ function Session:new(opts)
   return instance
 end
 
+local function read_file(file_path)
+  local file_bufnr = vim.fn.bufnr(file_path)
+  local file_lines = {}
+  if file_bufnr == -1 then
+    local buf = require('jean.buffer'):from_nr(file_bufnr)
+    file_lines = buf:get_lines()
+  else
+    local file = io.open(file_path, 'r')
+    if file then
+      for line in file:lines() do
+        table.insert(file_lines, line)
+      end
+      file:close()
+    end
+  end
+  return file_bufnr, file_lines
+end
+
+---@class EditToolInput
+---@field file_path string
+---@field old_string string
+
+---@class ToolUse
+---@field name "Edit"|"MultiEdit"|"Read"|"Write"|"WebFetch"|"WebSearch"
+---@field input EditToolInput|table
+
 ---@param win Window
----@param tool table -- TODO: Add types here
+---@param tool ToolUse
 function Session:_process_tool_use(win, tool)
   if tool.name == 'Edit' then
-    -- TODO: Search for old_string in file_path and add the line to qf
+    -- Search for old_string in file_path and add the line to qf
+    local bufnr, file_lines = read_file(tool.input.file_path)
+    local index, found = vim.iter(ipairs(file_lines)):find(function(_, line)
+      return line == tool.input.old_string
+    end)
+    if found then
+      ---@type QflistEntry
+      local entry = {
+        bufnr = bufnr,
+        filename = tool.input.file_path,
+        lnum = index,
+      }
+      vim.fn.setqflist({ entry }, 'a')
+    end
+
     -- TODO: Consider adding the diff to the buffer, but folded
   end
 end
@@ -123,8 +168,20 @@ function Session:submit_prompt(prompt)
   })
   self.last_cli = cli
 
+  -- Reset the qflist
+  vim.fn.setqflist({}, 'r', { title = '[Jean] Changes' })
+
   cli:start({
-    -- TODO: On error, restore modifiable
+    on_exit = vim.schedule_wrap(function()
+      -- Ensure we're readable
+      initial_win.buffer.o.modifiable = true
+
+      -- Show the qflist if we added anything to it
+      local qf = vim.fn.getqflist({ size = true })
+      if qf.size > 0 then
+        vim.cmd.copen()
+      end
+    end),
 
     on_entry = vim.schedule_wrap(function(entry)
       local win = self:window()

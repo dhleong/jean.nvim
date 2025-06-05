@@ -1,6 +1,6 @@
 ---@alias ClaudeOpts {pwd: string, prompt: string, claude_session_id: string|nil}
 
----@alias ClaudeStartOpts {on_entry: fun(entry: table)}
+---@alias ClaudeStartOpts {on_entry: fun(entry: table), on_exit: fun(success: boolean)}
 
 ---@class Claude
 ---@field pwd string
@@ -66,8 +66,8 @@ function Claude:start(opts)
         opts.on_entry(entry)
       end
     end,
-  }, function()
-    opts.on_entry({ raw = output })
+  }, function(result)
+    opts.on_exit(result.code == 0)
   end)
 end
 
