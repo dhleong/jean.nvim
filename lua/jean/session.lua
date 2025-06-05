@@ -63,12 +63,14 @@ end
 ---@param tool ToolUse
 function Session:_process_tool_use(win, tool)
   if tool.name == 'Edit' then
-    -- Search for old_string in file_path and add the line to qf
-    -- FIXME: We need to look for the *first line* in old_string
+    -- Search for (the first line of) old_string in file_path and add the line to qf
     local bufnr, file_lines = read_file(tool.input.file_path)
+    local old_string_lines = vim.split(tool.input.old_string, '\n')
+    local first_line = old_string_lines[1]
     local index, found = vim.iter(ipairs(file_lines)):find(function(_, line)
-      return line == tool.input.old_string
+      return line == first_line
     end)
+
     if found then
       ---@type QflistEntry
       local entry = {
