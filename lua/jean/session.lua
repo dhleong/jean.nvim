@@ -175,6 +175,18 @@ function Session:submit_prompt(prompt)
   vim.fn.setqflist({}, 'r', { title = '[Jean] Changes' })
 
   cli:start({
+    on_entry = vim.schedule_wrap(function(entry)
+      local win = self:window()
+      if not win then
+        -- Stop early
+        self:cancel_active_prompt()
+        return
+      end
+
+      self.history[#self.history + 1] = entry
+      self:_process_entry(win, entry)
+    end),
+
     on_exit = vim.schedule_wrap(function()
       -- Ensure we're readable
       initial_win.buffer.o.modifiable = true
@@ -187,18 +199,6 @@ function Session:submit_prompt(prompt)
         -- Reload any modified buffers
         vim.cmd.checktime()
       end
-    end),
-
-    on_entry = vim.schedule_wrap(function(entry)
-      local win = self:window()
-      if not win then
-        -- Stop early
-        self:cancel_active_prompt()
-        return
-      end
-
-      self.history[#self.history + 1] = entry
-      self:_process_entry(win, entry)
     end),
   })
 end
