@@ -203,6 +203,11 @@ function Session:submit_prompt(prompt)
 
         -- Reload any modified buffers
         vim.cmd.checktime()
+
+        -- Dismiss the window
+        if require('jean.config').dismiss_window_after_edits then
+          initial_win:hide()
+        end
       end
     end),
   })
