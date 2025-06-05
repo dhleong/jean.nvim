@@ -133,8 +133,18 @@ end
 
 ---@param lines string|string[]
 function Window:append_lines_and_follow(lines)
+  local was_at_end = false
+  if self.winnr then
+    local line_count = vim.api.nvim_buf_line_count(self.bufnr)
+    local cursor = vim.api.nvim_win_get_cursor(self.winnr)
+    was_at_end = cursor[1] == line_count
+  end
+
   self.buffer:append_lines(lines)
-  self:move_cursor_to_end() -- TODO: Maybe only if already at end?
+
+  if was_at_end then
+    self:move_cursor_to_end()
+  end
 end
 
 function Window:move_cursor_to_end()
