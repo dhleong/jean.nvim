@@ -27,6 +27,15 @@ function Session:new(opts)
 end
 
 ---@param win Window
+---@param tool table -- TODO: Add types here
+function Session:_process_tool_use(win, tool)
+  if tool.name == 'Edit' then
+    -- TODO: Search for old_string in file_path and add the line to qf
+    -- TODO: Consider adding the diff to the buffer, but folded
+  end
+end
+
+---@param win Window
 ---@param entry SessionHistoryEntry
 function Session:_process_entry(win, entry)
   -- Disable editing in the buffer while producing output
@@ -44,6 +53,8 @@ function Session:_process_entry(win, entry)
     for _, content in ipairs(entry.message.content) do
       if content.type == 'text' then
         win:append_lines_and_follow(vim.split(content.text, '\n'))
+      elseif content.type == 'tool_use' then
+        self:_process_tool_use(win, content)
       end
     end
   end
