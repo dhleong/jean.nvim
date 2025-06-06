@@ -104,7 +104,8 @@ end
 
 function Window:show()
   if self.winnr and vim.api.nvim_win_is_valid(self.winnr) then
-    -- Already open
+    -- Already open; move focus
+    vim.api.nvim_set_current_win(self.winnr)
     return
   end
 
