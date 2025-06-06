@@ -75,11 +75,11 @@ function Window:new(opts)
   self.__index = self
 
   if not instance.bufnr then
-    self.bufnr = vim.api.nvim_create_buf(false, true)
-    self.buffer = require('jean.buffer'):from_nr(self.bufnr)
-    self.buffer.vars.jean_session_id = opts.session_id
+    instance.bufnr = vim.api.nvim_create_buf(false, true)
+    instance.buffer = require('jean.buffer'):from_nr(instance.bufnr)
+    instance.buffer.vars.jean_session_id = opts.session_id
 
-    configure_buffer(self.buffer)
+    configure_buffer(instance.buffer)
 
     -- NOTE: The window isn't shown yet; wait until it is to move the cursor
     vim.schedule(function()
@@ -163,7 +163,7 @@ function M._get_or_create(session)
     error('No session id?')
   end
 
-  local existing = M._by_session[session.id]
+  local existing = M.for_session_id(session.id)
   if existing then
     return existing
   end
@@ -177,7 +177,7 @@ end
 ---@return Window|nil
 function M.for_session_id(session_id)
   local window = M._by_session[session_id]
-  if window and window.winnr then
+  if window then
     return window
   end
 end
