@@ -173,8 +173,11 @@ function Session:submit_prompt(prompt)
   })
   self.last_cli = cli
 
-  -- Reset the qflist
-  vim.fn.setqflist({}, 'r', { title = '[Jean] Changes' })
+  -- Reset the qflist.
+  vim.fn.setqflist({}, 'r', {
+    title = '[Jean] Changes',
+    items = {},
+  })
 
   cli:start({
     on_entry = vim.schedule_wrap(function(entry)
