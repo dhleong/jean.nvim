@@ -2,11 +2,6 @@ local GLOBAL_SESSION_ID = '__GLOBAL__'
 
 ---@alias ClaudeAssistantMessage table<string, any>
 
----@class QflistEntry
----@field bufnr? number
----@field filename? string
----@field lnum? number
-
 ---@class SessionHistoryEntry
 ---@field type "system"|"assistant"|"result"
 ---@field message ClaudeAssistantMessage|nil
@@ -72,7 +67,7 @@ function Session:_process_tool_use(win, tool)
     end)
 
     if found then
-      ---@type QflistEntry
+      ---@type vim.quickfix.entry
       local entry = {
         bufnr = bufnr,
         filename = tool.input.file_path,
