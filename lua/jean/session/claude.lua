@@ -1,6 +1,6 @@
 ---@alias ClaudeOpts {pwd: string, prompt: string, claude_session_id: string|nil}
 
----@alias ClaudeStartOpts {on_entry: fun(entry: table), on_exit: fun(success: boolean)}
+---@alias ClaudeStartOpts {on_entry: fun(entry: table), on_exit: fun(result: {success: boolean, error?: string})}
 
 ---@class Claude
 ---@field pwd string
@@ -28,7 +28,7 @@ end
 function Claude:start(opts)
   local cmd = { 'claude', '--print', '--verbose', '--output-format=stream-json' }
   if self.claude_session_id then
-    vim.list_extend(cmd, { '--resume', self.claude_session_id })
+    vim.list_extend(cmd, { '--resume', vim.trim(self.claude_session_id) })
   end
 
   -- TODO: Diff UI? MultiEdit might be hard...
@@ -67,7 +67,15 @@ function Claude:start(opts)
       end
     end,
   }, function(result)
-    opts.on_exit(result.code == 0)
+    ---@type string|nil
+    local error = vim.trim(result.stderr)
+    if #error == 0 then
+      error = nil
+    end
+    opts.on_exit({
+      success = result.code == 0,
+      error = error,
+    })
   end)
 end
 

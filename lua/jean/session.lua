@@ -187,12 +187,26 @@ function Session:submit_prompt(prompt)
       self:_process_entry(win, entry)
     end),
 
-    on_exit = vim.schedule_wrap(function()
+    on_exit = vim.schedule_wrap(function(result)
+      self.last_cli = nil
+
       -- Ensure we're readable
       initial_win.buffer.o.modifiable = true
 
       -- Clean up the spinner
       spinner:destroy()
+
+      if result.error then
+        initial_win:append_lines_and_follow({
+          '',
+          '### Error',
+          result.error,
+          '',
+          require('jean.config').request_separator,
+          '',
+          '',
+        })
+      end
 
       -- Show the qflist if we added anything to it
       local qf = vim.fn.getqflist({ size = true })
