@@ -1,3 +1,8 @@
+local response_headers = {
+  error = 'Error',
+  success = 'Response',
+}
+
 local M = {
   _by_session = {},
 }
@@ -146,6 +151,32 @@ function Window:append_lines_and_follow(lines)
   if was_at_end then
     self:move_cursor_to_end()
   end
+end
+
+---@param response_type "error"|"success"
+---@param lines string|string[]
+function Window:append_response(response_type, lines)
+  self:append_response_header(response_type)
+  self:append_lines_and_follow(lines)
+  self:append_request_header()
+end
+
+---@param response_type "error"|"success"
+function Window:append_response_header(response_type)
+  self:append_lines_and_follow({
+    '',
+    '### ' .. response_headers[response_type],
+    '',
+  })
+end
+
+function Window:append_request_header()
+  self:append_lines_and_follow({
+    '',
+    require('jean.config').request_separator,
+    '',
+    '',
+  })
 end
 
 function Window:move_cursor_to_end()

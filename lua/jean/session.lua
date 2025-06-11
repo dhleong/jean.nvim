@@ -86,7 +86,7 @@ function Session:_process_entry(win, entry)
   -- Disable editing in the buffer while producing output
   if entry.type == 'result' then
     win.buffer.o.modifiable = true
-    win:append_lines_and_follow({ '', require('jean.config').request_separator, '', '' })
+    win:append_request_header()
     self.last_cli = nil
   end
 
@@ -116,14 +116,7 @@ function Session:cancel_active_prompt()
     local win = self:window()
     if win then
       win.buffer.o.modifiable = true
-      win:append_lines_and_follow({
-        '',
-        'Execution canceled.',
-        '',
-        require('jean.config').request_separator,
-        '',
-        '',
-      })
+      win:append_response('error', 'Execution canceled.')
     end
     return true
   else
@@ -141,12 +134,7 @@ function Session:submit_prompt(prompt)
 
   -- Disable modification while we process
   initial_win.buffer.o.modifiable = false
-  initial_win:append_lines_and_follow({
-    '',
-    '## Response',
-    '> ' .. table.concat(vim.split(prompt, '\n'), '> '),
-    '',
-  })
+  initial_win:append_response_header('success')
 
   -- Show a spinner by the cursor while Claude thinks
   local spinner = require('jean.spinner'):new()
@@ -197,15 +185,7 @@ function Session:submit_prompt(prompt)
       spinner:destroy()
 
       if result.error then
-        initial_win:append_lines_and_follow({
-          '',
-          '### Error',
-          result.error,
-          '',
-          require('jean.config').request_separator,
-          '',
-          '',
-        })
+        initial_win:append_response('error', result.error)
       end
 
       -- Show the qflist if we added anything to it
