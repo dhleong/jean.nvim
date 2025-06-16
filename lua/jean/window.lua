@@ -12,7 +12,13 @@ local function configure_buffer(buf)
   buf.o.filetype = 'markdown'
 
   -- Initialize content
-  buf:append_lines({ require('jean.config').request_separator, '', '' })
+  buf:append_lines({
+    '> *Root Dir*: ' .. buf.vars.jean_session_id,
+    '',
+    require('jean.config').request_separator,
+    '',
+    '',
+  })
   buf:delete_lines(0, 1)
 
   ---@return Window|nil
