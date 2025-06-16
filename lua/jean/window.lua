@@ -122,9 +122,11 @@ function Window:show()
   local height = math.floor(vim.o.lines * 0.9)
   local top = (vim.o.lines - height) / 2
 
-  local left = 1
-  if vim.fn.col('.') <= width then
-    left = vim.o.columns - 1 - width
+  -- NOTE: Prefer to open on the right
+  local left = vim.o.columns - 1 - width
+  local win_pos = vim.api.nvim_win_get_position(0)
+  if win_pos[2] + vim.fn.virtcol('.') >= vim.o.columns - width then
+    left = 1
   end
 
   local enter_window = true
