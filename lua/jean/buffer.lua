@@ -72,7 +72,12 @@ end
 function Buffer:get_relative_path(relative_root)
   local absolute_path = vim.api.nvim_buf_get_name(self.bufnr)
   if vim.startswith(absolute_path, relative_root) then
-    return '.' .. string.sub(absolute_path, #relative_root + 1)
+    local relative = string.sub(absolute_path, #relative_root + 1)
+    if vim.startswith(relative, '/') then
+      return '.' .. relative
+    else
+      return './' .. relative
+    end
   end
   return absolute_path
 end

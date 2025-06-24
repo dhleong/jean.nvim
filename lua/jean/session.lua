@@ -244,32 +244,12 @@ function M.from_buffer(bufnr)
     end
   end
 
-  local clients = vim.lsp.get_clients({ bufnr = nr })
-  if not clients or #clients == 0 then
-    -- TODO: Other strategies?
-    return M.global()
+  local root = require 'jean.project'.root_for_buffer(nr)
+  if root then
+    return M._get_or_create(root, root)
   end
 
-  local fname = vim.api.nvim_buf_get_name(nr)
-  for _, client in ipairs(clients) do
-    local workspace_folders = client.workspace_folders
-    if workspace_folders then
-      for _, schema in ipairs(workspace_folders) do
-        -- TODO: Do we need `vim.loop.fs_realpath`?
-        local root_dir = schema.name
-        if root_dir and vim.startswith(fname, root_dir) then
-          return M._get_or_create(root_dir, root_dir)
-        end
-      end
-    end
-
-    if client.root_dir and vim.startswith(fname, client.root_dir) then
-      return M._get_or_create(client.root_dir, client.root_dir)
-    end
-  end
-
-  local pwd = vim.fn.getcwd()
-  return M._get_or_create(pwd, pwd)
+  return M.global()
 end
 
 return M
