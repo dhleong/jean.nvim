@@ -31,7 +31,7 @@ end
 local function read_file(file_path)
   local file_bufnr = vim.fn.bufnr(file_path)
   local file_lines = {}
-  if file_bufnr == -1 then
+  if file_bufnr ~= -1 then
     local buf = require('jean.buffer'):from_nr(file_bufnr)
     file_lines = buf:get_lines()
   else
