@@ -124,15 +124,21 @@ function Window:show()
   session.last_buffer = require('jean.buffer'):from_nr(vim.fn.bufnr('%'))
   session.last_buffer_winid = vim.api.nvim_get_current_win()
 
-  local width = math.floor(vim.o.columns * 0.4)
-  local height = math.floor(vim.o.lines * 0.9)
+  local border = require('jean.config').window.border
+  local margin = 1
+  if border then
+    margin = 3
+  end
+
+  local width = math.floor((vim.o.columns - 2 * margin) * 0.4)
+  local height = math.floor((vim.o.lines - 2 * margin) * 0.9)
   local top = (vim.o.lines - height) / 2
 
   -- NOTE: Prefer to open on the right
-  local left = vim.o.columns - 1 - width
+  local left = vim.o.columns - margin - width
   local win_pos = vim.api.nvim_win_get_position(0)
   if win_pos[2] + vim.fn.virtcol('.') >= vim.o.columns - width then
-    left = 1
+    left = margin
   end
 
   local enter_window = true
@@ -142,6 +148,7 @@ function Window:show()
     height = height,
     row = top,
     col = left,
+    border = border,
   })
 end
 
