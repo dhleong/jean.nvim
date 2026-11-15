@@ -1,12 +1,36 @@
----@alias ClaudeOpts {pwd: string, prompt: string, claude_session_id: string|nil}
+---@alias ClaudeOpts {pwd: string, prompt: string, resume_token: string|nil}
 
----@alias ClaudeStartOpts {on_entry: fun(entry: table), on_exit: fun(result: {success: boolean, error?: string})}
+---@alias ClaudeStartOpts {on_message: fun(msg: JeanMessage), on_exit: fun(result: {success: boolean, error?: string})}
 
 ---@class Claude
 ---@field pwd string
 ---@field prompt string
----@field claude_session_id string|nil
+---@field resume_token string|nil
 local Claude = {}
+
+---Turn one decoded stream-json entry into generic messages, emitting each
+---via on_message.
+---@param entry table
+---@param on_message fun(msg: JeanMessage)
+local function parse(entry, on_message)
+  if entry.type == 'system' and entry.session_id then
+    on_message({ type = 'resume_token', token = entry.session_id })
+  elseif entry.type == 'assistant' and entry.message and entry.message.content then
+    for _, content in ipairs(entry.message.content) do
+      if content.type == 'text' then
+        on_message({ type = 'text', text = content.text })
+      elseif content.type == 'tool_use' and content.name == 'Edit' then
+        on_message({
+          type = 'edit',
+          file_path = content.input.file_path,
+          old_text = content.input.old_string,
+        })
+      end
+    end
+  elseif entry.type == 'result' then
+    on_message({ type = 'done' })
+  end
+end
 
 ---@param opts ClaudeOpts
 ---@return Claude
@@ -27,8 +51,8 @@ end
 ---@param opts ClaudeStartOpts
 function Claude:start(opts)
   local cmd = { 'claude', '--print', '--verbose', '--output-format=stream-json' }
-  if self.claude_session_id then
-    vim.list_extend(cmd, { '--resume', vim.trim(self.claude_session_id) })
+  if self.resume_token then
+    vim.list_extend(cmd, { '--resume', vim.trim(self.resume_token) })
   end
 
   -- TODO: Diff UI? MultiEdit might be hard...
@@ -61,9 +85,7 @@ function Claude:start(opts)
       lines[#lines] = nil
 
       for _, line in ipairs(lines) do
-        local entry = vim.json.decode(line)
-        entry.raw = line
-        opts.on_entry(entry)
+        parse(vim.json.decode(line), opts.on_message)
       end
     end,
   }, function(result)

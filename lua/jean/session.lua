@@ -1,18 +1,11 @@
 local GLOBAL_SESSION_ID = '__GLOBAL__'
 
----@alias ClaudeAssistantMessage table<string, any>
-
----@class SessionHistoryEntry
----@field type "system"|"assistant"|"result"
----@field message ClaudeAssistantMessage|nil
----@field session_id string
-
 ---@class Session
 ---@field id string
----@field history SessionHistoryEntry[]
----@field claude_session_id string|nil
+---@field history JeanMessage[]
+---@field resume_token string|nil
 ---@field last_context string|nil
----@field last_cli Claude|nil
+---@field active_request {stop: fun(self)}|nil
 ---@field last_buffer Buffer|nil
 ---@field last_buffer_winid number|nil
 ---@field pwd string
@@ -46,22 +39,15 @@ local function read_file(file_path)
   return file_bufnr, file_lines
 end
 
----@class EditToolInput
----@field file_path string
----@field old_string string
-
----@class ToolUse
----@field name "Edit"|"MultiEdit"|"Read"|"Write"|"WebFetch"|"WebSearch"
----@field input EditToolInput|table
-
 ---@param win Window
----@param tool ToolUse
-function Session:_process_tool_use(win, tool)
-  if tool.name == 'Edit' then
-    -- Search for (the first line of) old_string in file_path and add the line to qf
-    local bufnr, file_lines = read_file(tool.input.file_path)
-    local old_string_lines = vim.split(tool.input.old_string, '\n')
-    local first_line = old_string_lines[1]
+---@param message JeanMessage
+function Session:_process_message(win, message)
+  if message.type == 'text' then
+    win:append_lines_and_follow(vim.split(message.text, '\n'))
+  elseif message.type == 'edit' then
+    -- Search for (the first line of) old_text in file_path and add the line to qf
+    local bufnr, file_lines = read_file(message.file_path)
+    local first_line = vim.split(message.old_text, '\n')[1]
     local index, found = vim.iter(ipairs(file_lines)):find(function(_, line)
       return line == first_line
     end)
@@ -70,48 +56,28 @@ function Session:_process_tool_use(win, tool)
       ---@type vim.quickfix.entry
       local entry = {
         bufnr = bufnr,
-        filename = tool.input.file_path,
+        filename = message.file_path,
         lnum = index,
       }
       vim.fn.setqflist({ entry }, 'a')
     end
 
     -- TODO: Consider adding the diff to the buffer, but folded
-  end
-end
-
----@param win Window
----@param entry SessionHistoryEntry
-function Session:_process_entry(win, entry)
-  -- Disable editing in the buffer while producing output
-  if entry.type == 'result' then
+  elseif message.type == 'resume_token' then
+    self.resume_token = message.token
+  elseif message.type == 'done' then
     win.buffer.o.modifiable = true
     win:append_request_header()
-    self.last_cli = nil
-  end
-
-  if entry.type == 'system' then
-    -- Technically on any message, but reduce churn:
-    self.claude_session_id = entry.session_id
-  end
-
-  if entry.type == 'assistant' and entry.message and entry.message.content then
-    for _, content in ipairs(entry.message.content) do
-      if content.type == 'text' then
-        win:append_lines_and_follow(vim.split(content.text, '\n'))
-      elseif content.type == 'tool_use' then
-        self:_process_tool_use(win, content)
-      end
-    end
+    self.active_request = nil
   end
 end
 
 ---@return boolean did_cancel *if* we canceled something
 function Session:cancel_active_prompt()
-  local cli = self.last_cli
-  self.last_cli = nil
-  if cli then
-    cli:stop()
+  local request = self.active_request
+  self.active_request = nil
+  if request then
+    request:stop()
 
     local win = self:window()
     if win then
@@ -136,7 +102,7 @@ function Session:submit_prompt(prompt)
   initial_win.buffer.o.modifiable = false
   initial_win:append_response_header('success')
 
-  -- Show a spinner by the cursor while Claude thinks
+  -- Show a spinner by the cursor while the agent thinks
   local spinner = require('jean.spinner'):new()
 
   local context = require('jean.context').build(self)
@@ -149,12 +115,12 @@ function Session:submit_prompt(prompt)
   end
 
   local Claude = require('jean.session.claude')
-  local cli = Claude:new({
-    claude_session_id = self.claude_session_id,
+  local request = Claude:new({
+    resume_token = self.resume_token,
     prompt = to_send,
     pwd = self.pwd,
   })
-  self.last_cli = cli
+  self.active_request = request
 
   -- Reset the qflist.
   vim.fn.setqflist({}, 'r', {
@@ -162,8 +128,8 @@ function Session:submit_prompt(prompt)
     items = {},
   })
 
-  cli:start({
-    on_entry = vim.schedule_wrap(function(entry)
+  request:start({
+    on_message = vim.schedule_wrap(function(message)
       local win = self:window()
       if not win then
         -- Stop early
@@ -171,12 +137,12 @@ function Session:submit_prompt(prompt)
         return
       end
 
-      self.history[#self.history + 1] = entry
-      self:_process_entry(win, entry)
+      self.history[#self.history + 1] = message
+      self:_process_message(win, message)
     end),
 
     on_exit = vim.schedule_wrap(function(result)
-      self.last_cli = nil
+      self.active_request = nil
 
       -- Ensure we're readable
       initial_win.buffer.o.modifiable = true
