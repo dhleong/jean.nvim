@@ -25,6 +25,14 @@ local function parse(entry, on_message)
           file_path = content.input.file_path,
           old_text = content.input.old_string,
         })
+      elseif content.type == 'tool_use' and content.name == 'MultiEdit' then
+        for _, edit in ipairs(content.input.edits) do
+          on_message({
+            type = 'edit',
+            file_path = content.input.file_path,
+            old_text = edit.old_string,
+          })
+        end
       end
     end
   elseif entry.type == 'result' then
@@ -55,7 +63,7 @@ function Claude:start(opts)
     vim.list_extend(cmd, { '--resume', vim.trim(self.resume_token) })
   end
 
-  -- TODO: Diff UI? MultiEdit might be hard...
+  -- TODO: Diff UI?
   vim.list_extend(cmd, {
     '--allowedTools',
     table.concat({
