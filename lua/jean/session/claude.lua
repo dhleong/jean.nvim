@@ -6,7 +6,9 @@
 ---@field pwd string
 ---@field prompt string
 ---@field resume_token string|nil
-local Claude = {}
+local Claude = {
+  id = 'claude',
+}
 
 ---Turn one decoded stream-json entry into generic messages, emitting each
 ---via on_message.

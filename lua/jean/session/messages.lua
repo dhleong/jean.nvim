@@ -7,6 +7,7 @@
 ---@field type 'edit'
 ---@field file_path string
 ---@field old_text string the text that was replaced
+---@field lnum? number 1-based line in file_path after the edit, if the provider knows it
 
 ---@class JeanResumeTokenMessage
 ---@field type 'resume_token'

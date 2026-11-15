@@ -17,6 +17,15 @@ function M.submit(prompt)
 end
 
 function M.setup(opts)
+  local Config = require('jean.config')
+  if opts and opts.provider then
+    if not Config.VALID_PROVIDERS[opts.provider] then
+      print('[jean.nvim] Invalid provider:', opts.provider)
+    else
+      Config._provider = opts.provider
+    end
+  end
+
   -- TODO
 end
 

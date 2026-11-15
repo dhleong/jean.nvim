@@ -4,6 +4,7 @@ local GLOBAL_SESSION_ID = '__GLOBAL__'
 ---@field id string
 ---@field history JeanMessage[]
 ---@field resume_token string|nil
+---@field resume_provider string|nil provider that issued resume_token
 ---@field last_context string|nil
 ---@field active_request {stop: fun(self)}|nil
 ---@field last_buffer Buffer|nil
@@ -45,14 +46,22 @@ function Session:_process_message(win, message)
   if message.type == 'text' then
     win:append_lines_and_follow(vim.split(message.text, '\n'))
   elseif message.type == 'edit' then
-    -- Search for (the first line of) old_text in file_path and add the line to qf
-    local bufnr, file_lines = read_file(message.file_path)
-    local first_line = vim.split(message.old_text, '\n')[1]
-    local index, found = vim.iter(ipairs(file_lines)):find(function(_, line)
-      return line == first_line
-    end)
+    local bufnr, index
+    if message.lnum then
+      -- Use the lnum if we know it already
+      bufnr = vim.fn.bufnr(message.file_path)
+      index = message.lnum
+    else
+      -- Search for (the first line of) old_text in file_path if we don't
+      local file_lines
+      bufnr, file_lines = read_file(message.file_path)
+      local first_line = vim.split(message.old_text, '\n')[1]
+      index = vim.iter(ipairs(file_lines)):find(function(_, line)
+        return line == first_line
+      end)
+    end
 
-    if found then
+    if index then
       ---@type vim.quickfix.entry
       local entry = {
         bufnr = bufnr,
@@ -65,6 +74,7 @@ function Session:_process_message(win, message)
     -- TODO: Consider adding the diff to the buffer, but folded
   elseif message.type == 'resume_token' then
     self.resume_token = message.token
+    self.resume_provider = self.last_provider.id
   elseif message.type == 'done' then
     win.buffer.o.modifiable = true
     win:append_request_header()
@@ -114,9 +124,11 @@ function Session:submit_prompt(prompt)
     self.last_context = context
   end
 
-  local Claude = require('jean.session.claude')
-  local request = Claude:new({
-    resume_token = self.resume_token,
+  local Provider = require('jean.config').create_provider(self)
+  self.last_provider = Provider
+
+  local request = Provider:new({
+    resume_token = self.resume_provider == Provider.id and self.resume_token or nil,
     prompt = to_send,
     pwd = self.pwd,
   })
