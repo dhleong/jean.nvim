@@ -34,11 +34,14 @@ function Tooltip:new()
         return
       end
 
-      vim.api.nvim_win_set_config(winnr, {
+      local ok, _ = pcall(vim.api.nvim_win_set_config, winnr, {
         relative = 'cursor',
         row = -1,
         col = 0,
       })
+      if not ok then
+        self:destroy()
+      end
     end,
   })
 
