@@ -111,8 +111,15 @@ function Session:cancel_active_prompt()
   end
 end
 
+---@class SubmitPromptOpts
+---@field spinner? boolean show the cursor-following spinner (default true)
+---@field on_message? fun(message: JeanMessage)
+---@field on_done? fun(result: {success: boolean, error?: string})
+
 ---@param prompt string
-function Session:submit_prompt(prompt)
+---@param opts? SubmitPromptOpts
+function Session:submit_prompt(prompt, opts)
+  opts = opts or {}
   local initial_win = self:window()
   if not initial_win then
     error('No window in which to submit prompt...')
@@ -126,7 +133,7 @@ function Session:submit_prompt(prompt)
   initial_win:append_response_header('success')
 
   -- Show a spinner by the cursor while the agent thinks
-  local spinner = require('jean.spinner'):new()
+  local spinner = opts.spinner ~= false and require('jean.spinner'):new() or nil
 
   local context = require('jean.context').build(self)
   local to_send = prompt
@@ -166,6 +173,9 @@ function Session:submit_prompt(prompt)
         self.history[#self.history + 1] = message
       end
       self:_process_message(win, message)
+      if opts.on_message then
+        opts.on_message(message)
+      end
     end),
 
     on_exit = vim.schedule_wrap(function(result)
@@ -176,10 +186,16 @@ function Session:submit_prompt(prompt)
       initial_win.buffer.o.modifiable = true
 
       -- Clean up the spinner
-      spinner:destroy()
+      if spinner then
+        spinner:destroy()
+      end
 
       if result.error then
         initial_win:append_response('error', result.error)
+      end
+
+      if opts.on_done then
+        opts.on_done(result)
       end
 
       -- Show the qflist if we added anything to it

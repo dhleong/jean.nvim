@@ -16,6 +16,11 @@ function M.submit(prompt)
   session:submit_prompt(prompt)
 end
 
+---Open a floating prompt at the cursor; the response shows as a chip on this line
+function M.prompt_inline()
+  require('jean.inline').prompt()
+end
+
 function M.setup(opts)
   local Config = require('jean.config')
   if opts and opts.provider then
