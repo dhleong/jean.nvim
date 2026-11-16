@@ -1,8 +1,6 @@
 local PROMPT_MIN_WIDTH = 20
 local PROMPT_MAX_WIDTH_RATIO = 0.7
 local CARET = '❯'
--- NOTE: One column of padding on each side of the caret
-local CARET_WIDTH = vim.fn.strdisplaywidth(CARET) + 2
 local CHIP_DONE = '●'
 local CHIP_ERROR = '✗'
 local NOTIFY_MAX_LINES = 5
@@ -23,6 +21,8 @@ local function caret_statuscolumn(highlight)
 end
 
 local PROMPT_STATUSCOLUMN = caret_statuscolumn('%#JeanPromptCaret#')
+-- NOTE: Keep in sync with caret_statuscolumn: padding, caret, padding, then the gap
+local CARET_WIDTH = vim.fn.strdisplaywidth(CARET) + 3
 
 ---Highlight the strip as user input only on the first `prompt_lines` buffer lines
 ---@param prompt_lines number
@@ -357,12 +357,23 @@ local function submit(session, bufnr, row, prompt, screen_row, screen_col)
   })
 end
 
+---Pick the side of the anchor with more room, once, so a growing float never flips sides
+local function choose_side(self)
+  -- Either way the float covers the anchor line itself
+  local below = vim.o.lines - 2 - self.screen_row
+  local above = self.screen_row + 1
+  self.above = below < above
+  self.max_height = math.max(self.above and above or below, 1)
+end
+
 ---@class JeanMini
 ---@field chip JeanChip
 ---@field bufnr number
 ---@field winid number
 ---@field screen_row number
 ---@field screen_col number
+---@field above boolean
+---@field max_height number
 ---@field prompt_lines number
 ---@field closed boolean
 ---@field following boolean scroll to the latest content on refresh until the user moves the cursor
@@ -443,6 +454,7 @@ function Mini:new(chip, screen_row, screen_col, at_input)
     screen_col = screen_col,
     bufnr = vim.api.nvim_create_buf(false, true),
   }, self)
+  choose_side(instance)
 
   instance.winid = vim.api.nvim_open_win(instance.bufnr, true, {
     relative = 'editor',
@@ -531,6 +543,8 @@ end
 ---@field winid number
 ---@field screen_row number 0-indexed editor row of the anchor line
 ---@field screen_col number 0-indexed editor column of the cursor
+---@field above boolean
+---@field max_height number
 ---@field closed boolean
 local PromptInput = {}
 PromptInput.__index = PromptInput
@@ -542,33 +556,54 @@ local function resize_float(self)
   for _, line in ipairs(vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)) do
     text_width = math.max(text_width, vim.fn.strdisplaywidth(line))
   end
-  local width = math.min(math.max(text_width + 1, PROMPT_MIN_WIDTH), max_width)
-  vim.api.nvim_win_set_width(self.winid, width + CARET_WIDTH)
+  -- Two spare columns: with one, a new character briefly pushes the cursor past the
+  -- edge before this resize runs, and Neovim leaves it drawn in the wrong place
+  local width = math.min(math.max(text_width + 2, PROMPT_MIN_WIDTH), max_width)
+  local config = vim.api.nvim_win_get_config(self.winid)
+  if config.width ~= width + CARET_WIDTH then
+    vim.api.nvim_win_set_width(self.winid, width + CARET_WIDTH)
+  end
   local height = vim.api.nvim_win_text_height(self.winid, {}).all
-  local max_height = vim.o.lines - 3
-  local capped = height > max_height
-  height = math.min(height, max_height)
-  vim.api.nvim_win_set_height(self.winid, height)
-  if not capped then
-    -- Neovim scrolled before the window grew; show the first line again.
-    vim.api.nvim_win_call(self.winid, function()
-      vim.fn.winrestview({ topline = 1 })
-    end)
-  end
-
   local col = math.max(math.min(self.screen_col, columns - CARET_WIDTH - width), 0)
-  local row = self.screen_row
-  if row + height > vim.o.lines - 2 then
-    row = math.max(self.screen_row - height, 0)
+
+  local function apply(h)
+    local row = self.above and self.screen_row - h + 1 or self.screen_row
+    local cfg = vim.api.nvim_win_get_config(self.winid)
+    if cfg.height ~= h or cfg.row ~= row or cfg.col ~= col then
+      vim.api.nvim_win_set_config(self.winid, {
+        relative = 'editor',
+        row = row,
+        col = col,
+        width = width + CARET_WIDTH,
+        height = h,
+      })
+    end
+    if height <= self.max_height then
+      -- Neovim scrolled before the window grew (or skipcol-scrolled within line 1);
+      -- show the first line again.
+      local view = vim.api.nvim_win_call(self.winid, vim.fn.winsaveview)
+      if view.topline ~= 1 or view.skipcol ~= 0 then
+        vim.api.nvim_win_call(self.winid, function()
+          vim.fn.winrestview({ topline = 1, skipcol = 0 })
+        end)
+      end
+    end
   end
 
-  vim.api.nvim_win_set_config(self.winid, {
-    relative = 'editor',
-    row = row,
-    col = col,
-    width = width + CARET_WIDTH,
-    height = height,
-  })
+  apply(math.min(height, self.max_height))
+  -- nvim_win_text_height ignores the insert cursor's cell past the end of the line;
+  -- when the last character ends at the right edge, that cell wraps onto a new row.
+  if height < self.max_height and vim.fn.mode():sub(1, 1) == 'i' then
+    local cursor = vim.api.nvim_win_get_cursor(self.winid)
+    local line = vim.api.nvim_buf_get_lines(self.bufnr, cursor[1] - 1, cursor[1], false)[1]
+    if cursor[2] == #line and #line > 0 then
+      local pos = vim.fn.screenpos(self.winid, cursor[1], #line)
+      if pos.row ~= 0 and pos.endcol == vim.fn.win_screenpos(self.winid)[2] + CARET_WIDTH + width - 1 then
+        height = height + 1
+        apply(height)
+      end
+    end
+  end
 end
 PromptInput.resize = resize_float
 Mini.resize = resize_float
@@ -596,6 +631,7 @@ function PromptInput:new(on_submit, on_cancel)
     screen_col = pos.col - 1,
     bufnr = vim.api.nvim_create_buf(false, true),
   }, self)
+  choose_side(instance)
 
   local float = {
     relative = 'editor',
@@ -612,6 +648,7 @@ function PromptInput:new(on_submit, on_cancel)
   vim.wo[instance.winid].linebreak = true
   vim.wo[instance.winid].winhighlight = 'Normal:NormalFloat'
   vim.wo[instance.winid].statuscolumn = PROMPT_STATUSCOLUMN
+  vim.wo[instance.winid].smoothscroll = false
   instance:resize()
 
   instance.augroup = vim.api.nvim_create_augroup('jean.inline.prompt', { clear = true })
