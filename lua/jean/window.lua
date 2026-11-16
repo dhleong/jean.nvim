@@ -168,6 +168,27 @@ function Window:append_lines_and_follow(lines)
   end
 end
 
+---Append text to the end of the last line (splitting on newlines).
+---@param text string
+function Window:append_text_and_follow(text)
+  local was_at_end = false
+  if self.winnr then
+    local line_count = vim.api.nvim_buf_line_count(self.bufnr)
+    was_at_end = vim.api.nvim_win_get_cursor(self.winnr)[1] == line_count
+  end
+
+  local lines = vim.split(text, '\n')
+  lines[1] = vim.api.nvim_buf_get_lines(self.bufnr, -2, -1, false)[1] .. lines[1]
+  local was_modifiable = self.buffer.o.modifiable
+  self.buffer.o.modifiable = true
+  vim.api.nvim_buf_set_lines(self.bufnr, -2, -1, false, lines)
+  self.buffer.o.modifiable = was_modifiable
+
+  if was_at_end then
+    self:move_cursor_to_end()
+  end
+end
+
 ---@param response_type "error"|"success"
 ---@param lines string|string[]
 function Window:append_response(response_type, lines)

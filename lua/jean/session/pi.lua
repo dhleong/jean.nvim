@@ -46,15 +46,25 @@ end
 ---@param entry table
 ---@param pwd string
 ---@param edit_args table<string, PiEditArgs> args of in-flight edit calls, by toolCallId
+---@param streamed table<number, boolean> contentIndexes of the current message whose text was streamed
+---@param outcome {failed: boolean, error: string|nil} outcome of the latest assistant message
 ---@param on_message fun(msg: JeanMessage)
-local function parse(entry, pwd, edit_args, on_message)
+local function parse(entry, pwd, edit_args, streamed, outcome, on_message)
   if entry.type == 'session' then
     on_message({ type = 'resume_token', token = entry.id })
+  elseif entry.type == 'message_update' and entry.assistantMessageEvent.type == 'text_delta' then
+    streamed[entry.assistantMessageEvent.contentIndex] = true
+    on_message({ type = 'text_delta', text = entry.assistantMessageEvent.delta })
   elseif entry.type == 'message_end' and entry.message.role == 'assistant' then
-    for _, content in ipairs(entry.message.content) do
+    outcome.failed = entry.message.stopReason == 'error'
+    outcome.error = outcome.failed and entry.message.errorMessage or nil
+    for i, content in ipairs(entry.message.content) do
       if content.type == 'text' and content.text ~= '' then
-        on_message({ type = 'text', text = content.text })
+        on_message({ type = 'text', text = content.text, streamed = streamed[i - 1] })
       end
+    end
+    for index in pairs(streamed) do
+      streamed[index] = nil
     end
   elseif entry.type == 'tool_execution_start' and entry.toolName == 'edit' then
     edit_args[entry.toolCallId] = entry.args
@@ -116,6 +126,8 @@ function Pi:start(opts)
 
   local output = ''
   local edit_args = {}
+  local streamed = {}
+  local outcome = { failed = false, error = nil }
   self._process = vim.system(cmd, {
     cwd = self.pwd,
     text = true,
@@ -137,19 +149,22 @@ function Pi:start(opts)
       for _, line in ipairs(lines) do
         local ok, entry = pcall(vim.json.decode, line)
         if ok then
-          parse(entry, self.pwd, edit_args, opts.on_message)
+          parse(entry, self.pwd, edit_args, streamed, outcome, opts.on_message)
         end
       end
     end,
   }, function(result)
-    ---@type string|nil
-    local error = vim.trim(result.stderr)
-    if #error == 0 then
-      error = nil
+    local errors = {}
+    if outcome.failed then
+      errors[#errors + 1] = outcome.error or 'pi request failed'
+    end
+    local stderr = vim.trim(result.stderr)
+    if #stderr > 0 then
+      errors[#errors + 1] = stderr
     end
     opts.on_exit({
-      success = result.code == 0,
-      error = error,
+      success = result.code == 0 and not outcome.failed,
+      error = #errors > 0 and table.concat(errors, '\n') or nil,
     })
   end)
 end

@@ -10,6 +10,7 @@ local GLOBAL_SESSION_ID = '__GLOBAL__'
 ---@field last_buffer Buffer|nil
 ---@field last_buffer_winid number|nil
 ---@field pwd string
+---@field streaming_text boolean|nil text_delta chunks of a block are being rendered
 local Session = {}
 
 ---@return Session
@@ -43,8 +44,18 @@ end
 ---@param win Window
 ---@param message JeanMessage
 function Session:_process_message(win, message)
-  if message.type == 'text' then
-    win:append_lines_and_follow(vim.split(message.text, '\n'))
+  if message.type == 'text_delta' then
+    if not self.streaming_text then
+      self.streaming_text = true
+      win:append_lines_and_follow('')
+    end
+    win:append_text_and_follow(message.text)
+  elseif message.type == 'text' then
+    if message.streamed then
+      self.streaming_text = false
+    else
+      win:append_lines_and_follow(vim.split(message.text, '\n'))
+    end
   elseif message.type == 'edit' then
     local bufnr, index
     if message.lnum then
@@ -108,6 +119,8 @@ function Session:submit_prompt(prompt)
     return
   end
 
+  self.streaming_text = false
+
   -- Disable modification while we process
   initial_win.buffer.o.modifiable = false
   initial_win:append_response_header('success')
@@ -149,12 +162,15 @@ function Session:submit_prompt(prompt)
         return
       end
 
-      self.history[#self.history + 1] = message
+      if message.type ~= 'text_delta' then
+        self.history[#self.history + 1] = message
+      end
       self:_process_message(win, message)
     end),
 
     on_exit = vim.schedule_wrap(function(result)
       self.active_request = nil
+      self.streaming_text = false
 
       -- Ensure we're readable
       initial_win.buffer.o.modifiable = true
