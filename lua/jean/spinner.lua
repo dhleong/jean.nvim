@@ -1,16 +1,20 @@
 ---@class Spinner
 ---@field tooltip Tooltip|nil
+---@field on_frame fun(frame: string)|nil
+---@field destroyed boolean
 ---@field timer uv.uv_timer_t|nil
 ---@field frames string[]
 ---@field current_frame number
 local Spinner = {}
 
+---@param opts? { on_frame: fun(frame: string) } drive a callback instead of a tooltip
 ---@return Spinner
-function Spinner:new()
-  local tooltip = require('jean.tooltip'):new()
-
+function Spinner:new(opts)
+  local on_frame = opts and opts.on_frame
   local instance = {
-    tooltip = tooltip,
+    tooltip = not on_frame and require('jean.tooltip'):new() or nil,
+    on_frame = on_frame,
+    destroyed = false,
     frames = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' },
     current_frame = 1,
   }
@@ -26,7 +30,7 @@ function Spinner:start()
     return
   end
 
-  if not self.tooltip then
+  if self.destroyed then
     error('Spinner is already destroyed')
   end
 
@@ -35,13 +39,17 @@ function Spinner:start()
     0, -- initial timeout
     100, -- interval (ms)
     vim.schedule_wrap(function()
-      if not self.tooltip then
+      if self.destroyed then
         self:stop()
         return
       end
 
       local frame = self.frames[self.current_frame]
-      self.tooltip.buffer:set_lines({ frame })
+      if self.on_frame then
+        self.on_frame(frame)
+      else
+        self.tooltip.buffer:set_lines({ frame })
+      end
 
       self.current_frame = self.current_frame + 1
       if self.current_frame > #self.frames then
@@ -61,6 +69,7 @@ end
 
 function Spinner:destroy()
   self:stop()
+  self.destroyed = true
 
   if self.tooltip then
     self.tooltip:destroy()
