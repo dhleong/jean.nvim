@@ -89,6 +89,7 @@ function Window:new(opts)
     instance.bufnr = vim.api.nvim_create_buf(false, true)
     instance.buffer = require('jean.buffer'):from_nr(instance.bufnr)
     instance.buffer.vars.jean_session_id = opts.session_id
+    instance.buffer.vars.jean_nvim_managed = true
 
     configure_buffer(instance.buffer)
 
@@ -119,10 +120,6 @@ function Window:show()
     vim.api.nvim_set_current_win(self.winnr)
     return
   end
-
-  local session = self:get_session()
-  session.last_buffer = require('jean.buffer'):from_nr(vim.fn.bufnr('%'))
-  session.last_buffer_winid = vim.api.nvim_get_current_win()
 
   local border = require('jean.config').window.border
   local margin = 1

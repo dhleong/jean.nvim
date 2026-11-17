@@ -8,6 +8,7 @@ local Tooltip = {}
 ---@return Tooltip
 function Tooltip:new()
   local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.b[bufnr].jean_nvim_managed = true
   local enter_window = false
   local winnr = vim.api.nvim_open_win(bufnr, enter_window, {
     relative = 'cursor',

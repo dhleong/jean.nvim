@@ -454,6 +454,7 @@ function Mini:new(chip, screen_row, screen_col, at_input)
     screen_col = screen_col,
     bufnr = vim.api.nvim_create_buf(false, true),
   }, self)
+  vim.b[instance.bufnr].jean_nvim_managed = true
   choose_side(instance)
 
   instance.winid = vim.api.nvim_open_win(instance.bufnr, true, {
@@ -631,6 +632,7 @@ function PromptInput:new(on_submit, on_cancel)
     screen_col = pos.col - 1,
     bufnr = vim.api.nvim_create_buf(false, true),
   }, self)
+  vim.b[instance.bufnr].jean_nvim_managed = true
   choose_side(instance)
 
   local float = {
@@ -715,6 +717,7 @@ local M = {}
 function M.prompt()
   local session = require('jean.session').from_buffer()
   local bufnr = vim.api.nvim_get_current_buf()
+  session:capture_context_source()
   -- Tracks the anchor line through edits made while the prompt is open
   local anchor = vim.api.nvim_buf_set_extmark(bufnr, ns, vim.fn.line('.') - 1, 0, {})
 

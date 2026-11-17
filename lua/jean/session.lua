@@ -25,6 +25,7 @@ function Session:new(opts)
 end
 
 function Session:_create_provider()
+  self.last_context = nil
   self.provider_class = require('jean.config').create_provider(self)
   self.provider = self.provider_class:new({
     pwd = self.pwd,
@@ -230,6 +231,8 @@ function Session:submit_prompt(prompt, opts)
   initial_win.buffer.o.modifiable = false
   initial_win:append_response_header('success')
 
+  -- Before the context check: swapping the provider resets last_context
+  local provider = self:_ensure_provider()
   local context = require('jean.context').build(self)
   local to_send = prompt
   if self.last_context ~= context then
@@ -252,11 +255,22 @@ function Session:submit_prompt(prompt, opts)
     on_message = opts.on_message,
     on_done = opts.on_done,
   }
-  self:_ensure_provider():prompt(to_send)
+  provider:prompt(to_send)
 end
 
 function Session:window()
   return require('jean.window').for_session_id(self.id)
+end
+
+---Remember the current window as the one a prompt is about, ignoring jean's own windows
+function Session:capture_context_source()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local winid = vim.api.nvim_get_current_win()
+  if vim.b[bufnr].jean_nvim_managed then
+    return
+  end
+  self.last_buffer = require('jean.buffer'):from_nr(bufnr)
+  self.last_buffer_winid = winid
 end
 
 local M = {

@@ -2,6 +2,7 @@ local M = {}
 
 function M.prompt()
   local session = require('jean.session').from_buffer()
+  session:capture_context_source()
   local window = require('jean.window').open(session)
 
   -- Always move the cursor to the end to be ready for input
@@ -11,6 +12,7 @@ end
 ---@param prompt string
 function M.submit(prompt)
   local session = require('jean.session').from_buffer()
+  session:capture_context_source()
   local win = require('jean.window').open(session, { startinsert = false })
   win:append_lines_and_follow(prompt)
   session:submit_prompt(prompt)
