@@ -46,7 +46,7 @@ end
 
 ---@param message JeanMessage
 function Session:_on_message(message)
-  local prompt = self.active_prompt
+  local prompt = not message.foreign and self.active_prompt or nil
   if message.type ~= 'text_delta' then
     self.history[#self.history + 1] = message
   end
@@ -59,7 +59,9 @@ function Session:_on_message(message)
     self:_process_message(win, message)
   elseif message.type == 'done' then
     -- No window to render into, but the prompt is still finished
-    self.active_prompt = nil
+    if not message.foreign then
+      self.active_prompt = nil
+    end
     self.streaming_text = false
     if prompt and prompt.spinner then
       prompt.spinner:destroy()
@@ -96,7 +98,16 @@ end
 ---@param win Window
 ---@param message JeanMessage
 function Session:_process_message(win, message)
-  if message.type == 'text_delta' then
+  if message.type == 'user_prompt' then
+    self.streaming_text = false
+    local last_line = vim.api.nvim_buf_get_lines(win.bufnr, -2, -1, false)[1]
+    if self.active_prompt or last_line ~= '' then
+      win:append_request_header()
+    end
+    win.buffer.o.modifiable = false
+    win:append_text_and_follow(message.text)
+    win:append_response_header('success')
+  elseif message.type == 'text_delta' then
     if not self.streaming_text then
       self.streaming_text = true
       win:append_lines_and_follow('')
@@ -136,12 +147,15 @@ function Session:_process_message(win, message)
 
     -- TODO: Consider adding the diff to the buffer, but folded
   elseif message.type == 'done' then
-    local prompt = self.active_prompt
-    self.active_prompt = nil
+    local prompt = not message.foreign and self.active_prompt or nil
+    if not message.foreign then
+      self.active_prompt = nil
+    end
     self.streaming_text = false
 
-    -- Make the buffer editable again so the user can type the next request
-    win.buffer.o.modifiable = true
+    -- Make the buffer editable again so the user can type the next request,
+    -- unless jean's own prompt is still being answered
+    win.buffer.o.modifiable = not self.active_prompt
 
     if prompt and prompt.spinner then
       prompt.spinner:destroy()
@@ -149,6 +163,11 @@ function Session:_process_message(win, message)
 
     if message.error then
       win:append_response('error', message.error)
+      if self.active_prompt then
+        win:append_response_header('success')
+      end
+    elseif self.active_prompt then
+      win:append_response_header('success')
     else
       win:append_request_header()
     end
@@ -171,13 +190,13 @@ function Session:cancel_active_prompt()
   self.active_prompt = nil
   if prompt then
     self.provider:stop()
-    self.streaming_text = false
     if prompt.spinner then
       prompt.spinner:destroy()
     end
 
     local win = self:window()
     if win then
+      self.streaming_text = false
       win.buffer.o.modifiable = true
       win:append_response('error', 'Execution canceled.')
     end
