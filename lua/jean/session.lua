@@ -3,10 +3,10 @@ local GLOBAL_SESSION_ID = '__GLOBAL__'
 ---@class Session
 ---@field id string
 ---@field history JeanMessage[]
----@field resume_token string|nil
----@field resume_provider string|nil provider that issued resume_token
 ---@field last_context string|nil
----@field active_request {stop: fun(self)}|nil
+---@field provider JeanProvider
+---@field provider_class table class `provider` was created from
+---@field active_prompt {win: Window, spinner: {destroy: fun(self)}|nil, on_message: fun(message: JeanMessage)|nil, on_done: fun(result: {success: boolean, error?: string})|nil}|nil the prompt being answered
 ---@field last_buffer Buffer|nil
 ---@field last_buffer_winid number|nil
 ---@field pwd string
@@ -20,7 +20,59 @@ function Session:new(opts)
   }, opts)
   setmetatable(instance, self)
   self.__index = self
+  instance:_create_provider()
   return instance
+end
+
+function Session:_create_provider()
+  self.provider_class = require('jean.config').create_provider(self)
+  self.provider = self.provider_class:new({
+    pwd = self.pwd,
+    on_message = vim.schedule_wrap(function(message)
+      self:_on_message(message)
+    end),
+  })
+end
+
+---Replace the provider if the configured one changed since it was created
+---@return JeanProvider
+function Session:_ensure_provider()
+  if require('jean.config').create_provider(self) ~= self.provider_class then
+    self.provider:destroy()
+    self:_create_provider()
+  end
+  return self.provider
+end
+
+---@param message JeanMessage
+function Session:_on_message(message)
+  local prompt = self.active_prompt
+  if message.type ~= 'text_delta' then
+    self.history[#self.history + 1] = message
+  end
+  if prompt and prompt.on_message then
+    prompt.on_message(message)
+  end
+
+  local win = self:window()
+  if win then
+    self:_process_message(win, message)
+  elseif message.type == 'done' then
+    -- No window to render into, but the prompt is still finished
+    self.active_prompt = nil
+    self.streaming_text = false
+    if prompt and prompt.spinner then
+      prompt.spinner:destroy()
+    end
+  end
+
+  if message.type == 'done' and prompt and prompt.on_done then
+    prompt.on_done({ success = not message.error, error = message.error })
+  end
+end
+
+local function check_for_buffer_edits()
+  vim.cmd.checktime()
 end
 
 local function read_file(file_path)
@@ -83,27 +135,54 @@ function Session:_process_message(win, message)
     end
 
     -- TODO: Consider adding the diff to the buffer, but folded
-  elseif message.type == 'resume_token' then
-    self.resume_token = message.token
-    self.resume_provider = self.last_provider.id
   elseif message.type == 'done' then
+    local prompt = self.active_prompt
+    self.active_prompt = nil
+    self.streaming_text = false
+
+    -- Make the buffer editable again so the user can type the next request
     win.buffer.o.modifiable = true
-    win:append_request_header()
-    self.active_request = nil
+
+    if prompt and prompt.spinner then
+      prompt.spinner:destroy()
+    end
+
+    if message.error then
+      win:append_response('error', message.error)
+    else
+      win:append_request_header()
+    end
+
+    local qf = vim.fn.getqflist({ size = true })
+    if qf.size > 0 then
+      vim.cmd.copen()
+      check_for_buffer_edits()
+
+      if require('jean.config').dismiss_window_after_edits then
+        (prompt and prompt.win or win):hide()
+      end
+    end
   end
 end
 
 ---@return boolean did_cancel *if* we canceled something
 function Session:cancel_active_prompt()
-  local request = self.active_request
-  self.active_request = nil
-  if request then
-    request:stop()
+  local prompt = self.active_prompt
+  self.active_prompt = nil
+  if prompt then
+    self.provider:stop()
+    self.streaming_text = false
+    if prompt.spinner then
+      prompt.spinner:destroy()
+    end
 
     local win = self:window()
     if win then
       win.buffer.o.modifiable = true
       win:append_response('error', 'Execution canceled.')
+    end
+    if prompt.on_done then
+      prompt.on_done({ success = false, error = 'Execution canceled.' })
     end
     return true
   else
@@ -132,9 +211,6 @@ function Session:submit_prompt(prompt, opts)
   initial_win.buffer.o.modifiable = false
   initial_win:append_response_header('success')
 
-  -- Show a spinner by the cursor while the agent thinks
-  local spinner = opts.spinner ~= false and require('jean.spinner'):new() or nil
-
   local context = require('jean.context').build(self)
   local to_send = prompt
   if self.last_context ~= context then
@@ -144,75 +220,20 @@ function Session:submit_prompt(prompt, opts)
     self.last_context = context
   end
 
-  local Provider = require('jean.config').create_provider(self)
-  self.last_provider = Provider
-
-  local request = Provider:new({
-    resume_token = self.resume_provider == Provider.id and self.resume_token or nil,
-    prompt = to_send,
-    pwd = self.pwd,
-  })
-  self.active_request = request
-
   -- Reset the qflist.
   vim.fn.setqflist({}, 'r', {
     title = '[Jean] Changes',
     items = {},
   })
 
-  request:start({
-    on_message = vim.schedule_wrap(function(message)
-      local win = self:window()
-      if not win then
-        -- Stop early
-        self:cancel_active_prompt()
-        return
-      end
-
-      if message.type ~= 'text_delta' then
-        self.history[#self.history + 1] = message
-      end
-      self:_process_message(win, message)
-      if opts.on_message then
-        opts.on_message(message)
-      end
-    end),
-
-    on_exit = vim.schedule_wrap(function(result)
-      self.active_request = nil
-      self.streaming_text = false
-
-      -- Ensure we're readable
-      initial_win.buffer.o.modifiable = true
-
-      -- Clean up the spinner
-      if spinner then
-        spinner:destroy()
-      end
-
-      if result.error then
-        initial_win:append_response('error', result.error)
-      end
-
-      if opts.on_done then
-        opts.on_done(result)
-      end
-
-      -- Show the qflist if we added anything to it
-      local qf = vim.fn.getqflist({ size = true })
-      if qf.size > 0 then
-        vim.cmd.copen()
-
-        -- Reload any modified buffers
-        vim.cmd.checktime()
-
-        -- Dismiss the window
-        if require('jean.config').dismiss_window_after_edits then
-          initial_win:hide()
-        end
-      end
-    end),
-  })
+  self.active_prompt = {
+    win = initial_win,
+    -- Show a spinner by the cursor while the agent thinks
+    spinner = opts.spinner ~= false and require('jean.spinner'):new() or nil,
+    on_message = opts.on_message,
+    on_done = opts.on_done,
+  }
+  self:_ensure_provider():prompt(to_send)
 end
 
 function Session:window()

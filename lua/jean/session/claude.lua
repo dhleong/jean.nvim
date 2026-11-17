@@ -1,10 +1,6 @@
----@alias ClaudeOpts {pwd: string, prompt: string, resume_token: string|nil}
-
----@alias ClaudeStartOpts {on_message: fun(msg: JeanMessage), on_exit: fun(result: {success: boolean, error?: string})}
-
----@class Claude
+---@class Claude : JeanProvider
 ---@field pwd string
----@field prompt string
+---@field on_message fun(msg: JeanMessage)
 ---@field resume_token string|nil
 local Claude = {
   id = 'claude',
@@ -37,12 +33,10 @@ local function parse(entry, on_message)
         end
       end
     end
-  elseif entry.type == 'result' then
-    on_message({ type = 'done' })
   end
 end
 
----@param opts ClaudeOpts
+---@param opts JeanProviderOpts
 ---@return Claude
 function Claude:new(opts)
   local instance = vim.tbl_extend('keep', {}, opts)
@@ -52,14 +46,22 @@ function Claude:new(opts)
 end
 
 function Claude:stop()
-  if self._process then
-    self._process:kill('sigterm')
+  self._run = nil
+  local process = self._process
+  if process then
     self._process = nil
+    process:kill('sigterm')
   end
 end
 
----@param opts ClaudeStartOpts
-function Claude:start(opts)
+function Claude:destroy()
+  self:stop()
+end
+
+---@param text string
+function Claude:prompt(text)
+  self:stop()
+
   local cmd = { 'claude', '--print', '--verbose', '--output-format=stream-json' }
   if self.resume_token then
     vim.list_extend(cmd, { '--resume', vim.trim(self.resume_token) })
@@ -78,13 +80,26 @@ function Claude:start(opts)
     }, ','),
   })
 
+  -- Messages are only delivered while this run is still the current one
+  local run = {}
+  local function emit(message)
+    if self._run ~= run then
+      return
+    end
+    if message.type == 'resume_token' then
+      self.resume_token = message.token
+    end
+    self.on_message(message)
+  end
+  self._run = run
+
   local output = ''
   self._process = vim.system(cmd, {
     cwd = self.pwd,
     text = true,
     clear_env = false,
-    stdin = { self.prompt },
-    stdout = function(err, stdout)
+    stdin = { text },
+    stdout = function(_, stdout)
       if not stdout then
         return
       end
@@ -95,19 +110,19 @@ function Claude:start(opts)
       lines[#lines] = nil
 
       for _, line in ipairs(lines) do
-        parse(vim.json.decode(line), opts.on_message)
+        parse(vim.json.decode(line), emit)
       end
     end,
   }, function(result)
+    if self._run == run then
+      self._process = nil
+    end
     ---@type string|nil
     local error = vim.trim(result.stderr)
     if #error == 0 then
-      error = nil
+      error = result.code ~= 0 and ('claude exited with code ' .. result.code) or nil
     end
-    opts.on_exit({
-      success = result.code == 0,
-      error = error,
-    })
+    emit({ type = 'done', error = error })
   end)
 end
 

@@ -1,10 +1,6 @@
----@alias PiOpts {pwd: string, prompt: string, resume_token: string|nil}
-
----@alias PiStartOpts {on_message: fun(msg: JeanMessage), on_exit: fun(result: {success: boolean, error?: string})}
-
----@class Pi
+---@class Pi : JeanProvider
 ---@field pwd string
----@field prompt string
+---@field on_message fun(msg: JeanMessage)
 ---@field resume_token string|nil
 local Pi = {
   id = 'pi',
@@ -97,11 +93,11 @@ local function parse(entry, pwd, edit_args, streamed, outcome, on_message)
       })
     end
   elseif entry.type == 'agent_settled' then
-    on_message({ type = 'done' })
+    on_message({ type = 'done', error = outcome.failed and (outcome.error or 'pi request failed') or nil })
   end
 end
 
----@param opts PiOpts
+---@param opts JeanProviderOpts
 ---@return Pi
 function Pi:new(opts)
   local instance = vim.tbl_extend('keep', {}, opts)
@@ -111,18 +107,41 @@ function Pi:new(opts)
 end
 
 function Pi:stop()
-  if self._process then
-    self._process:kill('sigterm')
+  self._run = nil
+  local process = self._process
+  if process then
     self._process = nil
+    process:kill('sigterm')
   end
 end
 
----@param opts PiStartOpts
-function Pi:start(opts)
+function Pi:destroy()
+  self:stop()
+end
+
+---@param text string
+function Pi:prompt(text)
+  self:stop()
+
   local cmd = { 'pi', '-p', '--mode', 'json', '--tools', 'read,edit,write' }
   if self.resume_token then
     vim.list_extend(cmd, { '--session-id', vim.trim(self.resume_token) })
   end
+
+  -- Messages are only delivered while this run is still the current one
+  local run = {}
+  local function emit(message)
+    if self._run ~= run or run.done then
+      return
+    end
+    if message.type == 'done' then
+      run.done = true
+    elseif message.type == 'resume_token' then
+      self.resume_token = message.token
+    end
+    self.on_message(message)
+  end
+  self._run = run
 
   local output = ''
   local edit_args = {}
@@ -135,7 +154,7 @@ function Pi:start(opts)
     -- An empty value makes the auth-profiles extension ignore any
     -- PI_AUTH_PROFILE inherited by Neovim, so the project's own profile applies
     env = { PI_AUTH_PROFILE = '' },
-    stdin = { self.prompt },
+    stdin = { text },
     stdout = function(_, stdout)
       if not stdout then
         return
@@ -149,11 +168,16 @@ function Pi:start(opts)
       for _, line in ipairs(lines) do
         local ok, entry = pcall(vim.json.decode, line)
         if ok then
-          parse(entry, self.pwd, edit_args, streamed, outcome, opts.on_message)
+          parse(entry, self.pwd, edit_args, streamed, outcome, emit)
         end
       end
     end,
   }, function(result)
+    if self._run == run then
+      self._process = nil
+    end
+    -- Normally a no-op: agent_settled already sent `done`. This ends the
+    -- prompt if pi exited without settling (e.g. it crashed).
     local errors = {}
     if outcome.failed then
       errors[#errors + 1] = outcome.error or 'pi request failed'
@@ -162,10 +186,10 @@ function Pi:start(opts)
     if #stderr > 0 then
       errors[#errors + 1] = stderr
     end
-    opts.on_exit({
-      success = result.code == 0 and not outcome.failed,
-      error = #errors > 0 and table.concat(errors, '\n') or nil,
-    })
+    if result.code ~= 0 and #errors == 0 then
+      errors[#errors + 1] = 'pi exited with code ' .. result.code
+    end
+    emit({ type = 'done', error = #errors > 0 and table.concat(errors, '\n') or nil })
   end)
 end
 
