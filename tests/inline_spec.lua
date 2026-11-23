@@ -88,7 +88,13 @@ local function responses(thread)
 end
 
 local function teardown()
+  for _, winid in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_config(winid).relative ~= '' then
+      vim.api.nvim_win_close(winid, true)
+    end
+  end
   vim.cmd('silent! %bwipeout!')
+  t.flush()
 end
 
 t.test('two queued threads in one buffer: each reply lands in its own thread', function()
@@ -165,6 +171,98 @@ t.test('replying in a thread adds an exchange to it only, shown in its float', f
   press('<cr>')
   t.eq('third', a.exchanges[3].prompt)
   t.eq(1, #b.exchanges)
+  teardown()
+end)
+
+---@return number[] ids of the open floating windows
+local function floats()
+  return vim.tbl_filter(function(winid)
+    return vim.api.nvim_win_get_config(winid).relative ~= ''
+  end, vim.api.nvim_list_wins())
+end
+
+---@param winid number
+---@return string[]
+local function window_lines(winid)
+  return vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(winid), 0, -1, false)
+end
+
+---Open a thread on row 1 with two finished exchanges and `g/` on it again
+---@return FakeProvider provider, number win, Thread thread
+local function reply_input_with_history()
+  local Fake = setup()
+  open_file({ 'one', 'two' })
+  local win = vim.api.nvim_get_current_win()
+  local provider
+  for _, text in ipairs({ 'first', 'second' }) do
+    ask(1, text)
+    back_to(win)
+    provider = Fake.instances[1]
+    provider:emit({ type = 'text', text = 'answer ' .. text })
+    provider:emit({ type = 'done' })
+    t.flush()
+  end
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  require('jean').prompt_inline()
+  return provider, win, require('jean.thread').list()[1]
+end
+
+t.test('reply input shows the latest exchange above it', function()
+  local provider, win, thread = reply_input_with_history()
+  local input = vim.api.nvim_get_current_win()
+  local all = floats()
+  t.eq(2, #all)
+  local context = vim.tbl_filter(function(winid)
+    return winid ~= input
+  end, all)[1]
+  t.eq({ 'second', '', 'answer second' }, window_lines(context))
+  t.eq({ '' }, window_lines(input))
+  local input_config, context_config = vim.api.nvim_win_get_config(input), vim.api.nvim_win_get_config(context)
+  t.eq(input_config.col, context_config.col)
+  t.eq(true, context_config.row + context_config.height == input_config.row or context_config.row == input_config.row + input_config.height)
+
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'third' })
+  press('<cr>')
+  t.eq('third', thread.exchanges[3].prompt)
+  t.eq(true, vim.endswith(provider.prompts[3], '\nthird'))
+  t.eq(1, #floats())
+  teardown()
+end)
+
+t.test('reply input context closes with the input on cancel', function()
+  reply_input_with_history()
+  t.eq(2, #floats())
+  press('<esc>')
+  t.eq(0, #floats())
+  teardown()
+end)
+
+t.test('reply input shows the partial response of a streaming exchange', function()
+  local Fake = setup()
+  open_file({ 'one' })
+  local win = vim.api.nvim_get_current_win()
+  ask(1, 'ask')
+  back_to(win)
+  Fake.instances[1]:emit({ type = 'text', text = 'so far' })
+  t.flush()
+  require('jean').prompt_inline()
+  local input = vim.api.nvim_get_current_win()
+  local context = vim.tbl_filter(function(winid)
+    return winid ~= input
+  end, floats())[1]
+  t.eq({ 'ask', '', 'so far' }, window_lines(context))
+  press('q')
+  t.eq(0, #floats())
+  teardown()
+end)
+
+t.test('a new thread input has no context', function()
+  setup()
+  open_file({ 'one' })
+  require('jean').prompt_inline()
+  t.eq(1, #floats())
+  press('q')
+  t.eq(0, #floats())
   teardown()
 end)
 

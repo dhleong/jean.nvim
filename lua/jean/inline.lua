@@ -799,10 +799,89 @@ function Mini:new(chip, screen_row, screen_col, at_input)
   return instance
 end
 
+---Read-only float stacked against a prompt input, showing a thread's latest exchange
+---@class JeanPromptContext
+---@field bufnr number
+---@field winid number
+---@field width number including the caret strip
+---@field height number
+---@field prompt_rows table<number, 'start'|'rest'>
+
+---@type table<number, JeanPromptContext> by window id
+local contexts = {}
+
+local CONTEXT_MAX_HEIGHT_RATIO = 0.4
+
+---@param exchange ThreadExchange
+---@return string[] lines, table<number, 'start'|'rest'> prompt_rows
+local function exchange_lines(exchange)
+  local lines = vim.split(exchange.prompt, '\n')
+  local prompt_rows = {}
+  for row = 1, #lines do
+    prompt_rows[row] = row == 1 and 'start' or 'rest'
+  end
+  for _, block in ipairs(exchange.blocks) do
+    lines[#lines + 1] = ''
+    vim.list_extend(lines, vim.split(block.text, '\n'))
+  end
+  return lines, prompt_rows
+end
+
+---Open the context float, unfocused and scrolled to its end; it is placed by `resize_float`
+---@param exchange ThreadExchange
+---@param max_height number rows available to the context and the input together
+---@return JeanPromptContext|nil nil when there is no room for it above one input row
+local function open_context(exchange, max_height)
+  local lines, prompt_rows = exchange_lines(exchange)
+  local text_width = 0
+  for _, line in ipairs(lines) do
+    text_width = math.max(text_width, vim.fn.strdisplaywidth(line))
+  end
+  local max_width = math.floor(vim.o.columns * PROMPT_MAX_WIDTH_RATIO) - CARET_WIDTH
+  local width = math.min(math.max(text_width, PROMPT_MIN_WIDTH), math.max(max_width, PROMPT_MIN_WIDTH))
+  local cap = math.min(math.floor(vim.o.lines * CONTEXT_MAX_HEIGHT_RATIO), max_height - 1)
+  if cap < 1 then
+    return
+  end
+
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.b[bufnr].jean_nvim_managed = true
+  vim.bo[bufnr].bufhidden = 'wipe'
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  vim.bo[bufnr].modifiable = false
+  local winid = vim.api.nvim_open_win(bufnr, false, {
+    relative = 'editor',
+    style = 'minimal',
+    focusable = false,
+    row = 0,
+    col = 0,
+    width = width + CARET_WIDTH,
+    height = 1,
+    zindex = 50,
+  })
+  vim.wo[winid].wrap = true
+  vim.wo[winid].linebreak = true
+  -- NOTE: Without smoothscroll, zb cannot start mid-line (see Mini:new)
+  vim.wo[winid].smoothscroll = true
+  vim.wo[winid].winhighlight = 'Normal:NormalFloat'
+  vim.wo[winid].statuscolumn = "%!v:lua.require'jean.inline'._mini_statuscolumn()"
+  local height = math.min(vim.api.nvim_win_text_height(winid, {}).all, cap)
+  vim.api.nvim_win_set_height(winid, height)
+  vim.api.nvim_win_call(winid, function()
+    vim.api.nvim_win_set_cursor(0, { #lines, 0 })
+    vim.cmd.normal({ 'zb', bang = true })
+  end)
+
+  local context = { bufnr = bufnr, winid = winid, width = width + CARET_WIDTH, height = height, prompt_rows = prompt_rows }
+  contexts[winid] = context
+  return context
+end
+
 ---Floating prompt input with a caret drawn in its statuscolumn
 ---@class JeanPromptInput
 ---@field bufnr number
 ---@field winid number
+---@field context? JeanPromptContext
 ---@field screen_row number 0-indexed editor row of the anchor line
 ---@field screen_col number 0-indexed editor column of the cursor
 ---@field above boolean
@@ -826,7 +905,8 @@ local function resize_float(self)
     vim.api.nvim_win_set_width(self.winid, width + CARET_WIDTH)
   end
   local height = vim.api.nvim_win_text_height(self.winid, {}).all
-  local col = math.max(math.min(self.screen_col, columns - CARET_WIDTH - width), 0)
+  local total_width = math.max(width + CARET_WIDTH, self.context and self.context.width or 0)
+  local col = math.max(math.min(self.screen_col, columns - total_width), 0)
 
   local function apply(h)
     local row = self.above and self.screen_row - h + 1 or self.screen_row
@@ -838,6 +918,13 @@ local function resize_float(self)
         col = col,
         width = width + CARET_WIDTH,
         height = h,
+      })
+    end
+    if self.context then
+      vim.api.nvim_win_set_config(self.context.winid, {
+        relative = 'editor',
+        row = self.above and row - self.context.height or row + h,
+        col = col,
       })
     end
     if height <= self.max_height then
@@ -879,13 +966,20 @@ function PromptInput:close()
   if vim.api.nvim_win_is_valid(self.winid) then
     vim.api.nvim_win_close(self.winid, true)
   end
+  if self.context then
+    contexts[self.context.winid] = nil
+    if vim.api.nvim_win_is_valid(self.context.winid) then
+      vim.api.nvim_win_close(self.context.winid, true)
+    end
+  end
   vim.api.nvim_del_augroup_by_id(self.augroup)
 end
 
 ---@param on_submit fun(text: string, screen_row: number, screen_col: number)
 ---@param on_cancel fun()
+---@param exchange? ThreadExchange the thread's latest exchange, shown above the input
 ---@return JeanPromptInput
-function PromptInput:new(on_submit, on_cancel)
+function PromptInput:new(on_submit, on_cancel, exchange)
   local pos = vim.fn.screenpos(0, vim.fn.line('.'), vim.fn.col('.'))
   local instance = setmetatable({
     closed = false,
@@ -895,6 +989,12 @@ function PromptInput:new(on_submit, on_cancel)
   }, self)
   vim.b[instance.bufnr].jean_nvim_managed = true
   choose_side(instance)
+  if exchange then
+    instance.context = open_context(exchange, instance.max_height)
+    if instance.context then
+      instance.max_height = instance.max_height - instance.context.height
+    end
+  end
 
   local float = {
     relative = 'editor',
@@ -979,7 +1079,7 @@ local M = {}
 ---Statuscolumn of a mini window: the caret strip marks each prompt as user input
 ---@return string
 function M._mini_statuscolumn()
-  local kind = minis[vim.g.statusline_winid].prompt_rows[vim.v.lnum]
+  local kind = (minis[vim.g.statusline_winid] or contexts[vim.g.statusline_winid]).prompt_rows[vim.v.lnum]
   local caret = kind == 'start' and vim.v.virtnum == 0 and CARET or CARET_PADDING
   return (kind and '%#JeanPromptCaret#' or '%#JeanResponseCaret#') .. ' ' .. caret .. ' %* '
 end
@@ -1008,7 +1108,7 @@ local function open_input(thread)
     if anchor then
       vim.api.nvim_buf_del_extmark(bufnr, ns, anchor)
     end
-  end)
+  end, thread and thread.exchanges[#thread.exchanges])
 end
 
 reply = function(thread)
