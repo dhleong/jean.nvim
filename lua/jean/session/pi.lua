@@ -11,7 +11,8 @@
 ---@field busy boolean pi is in a run
 
 ---A prompt jean sent. It's `started` once pi echoes its user message: events
----before that belong to runs jean didn't start.
+---before that belong to runs jean didn't start. It ends when pi settles or
+---another user message starts.
 ---@class PiPrompt
 ---@field text string
 ---@field started boolean
@@ -34,7 +35,7 @@
 ---@field pwd string
 ---@field on_message fun(msg: JeanMessage)
 ---@field resume_token string|nil
----@field socket string|nil PI_RPC_SOCKET this provider took, if any
+---@field socket string|nil PI_RPC_SOCKET to connect to instead of spawning pi
 ---@field _conn PiConnection|nil
 ---@field _prompt PiPrompt|nil
 ---@field _foreign PiForeignRun|nil
@@ -166,13 +167,6 @@ end
 ---@return Pi
 function Pi:new(opts)
   local instance = vim.tbl_extend('keep', {}, opts)
-  -- Only the first provider drives the pi that launched us; other sessions
-  -- get a pi of their own
-  local socket = vim.env.PI_RPC_SOCKET
-  if socket and socket ~= '' then
-    instance.socket = socket
-    vim.env.PI_RPC_SOCKET = nil
-  end
   instance._cancelled = {}
   instance._rejected = false
   setmetatable(instance, self)
@@ -181,6 +175,11 @@ function Pi:new(opts)
     instance:_open()
   end
   return instance
+end
+
+---@param prompt PiPrompt
+function Pi:_finish_started(prompt)
+  self:_finish(prompt.outcome.failed and (prompt.outcome.error or 'pi request failed') or nil)
 end
 
 ---@param error string|nil
@@ -222,6 +221,13 @@ end
 ---@param record table
 function Pi:_on_record(conn, record)
   local prompt = self._prompt
+  local user_message = record.type == 'message_start' and record.message.role == 'user'
+  if prompt and prompt.started and user_message then
+    -- A follow-up, or the user typing in pi: jean's run ends here
+    self:_finish_started(prompt)
+    prompt = nil
+  end
+
   if record.type == 'response' then
     if record.command == 'connect' and not record.success then
       -- Another client holds the socket; it closes this connection next
@@ -246,11 +252,11 @@ function Pi:_on_record(conn, record)
     conn.busy = false
     self:_finish_foreign()
     if prompt and prompt.started then
-      self:_finish(prompt.outcome.failed and (prompt.outcome.error or 'pi request failed') or nil)
+      self:_finish_started(prompt)
     end
   elseif prompt and prompt.started then
     parse(record, self.pwd, prompt.edit_args, prompt.streamed, prompt.outcome, self.on_message)
-  elseif record.type == 'message_start' and record.message.role == 'user' then
+  elseif user_message then
     local text = content_text(record.message.content)
     local cancelled = vim.iter(ipairs(self._cancelled)):find(function(_, cancelled_text)
       return cancelled_text == text
@@ -466,8 +472,6 @@ end
 
 ---@param text string
 function Pi:prompt(text)
-  self:stop()
-
   ---@type PiPrompt
   local prompt = {
     text = text,

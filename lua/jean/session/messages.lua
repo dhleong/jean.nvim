@@ -41,12 +41,15 @@
 ---@class JeanProviderOpts
 ---@field pwd string
 ---@field on_message fun(msg: JeanMessage) may be called at any time, not only while a prompt is running
+---@field socket? string PI_RPC_SOCKET of the pi that launched nvim, for providers that can use it
 
 ---A long-lived connection to an agent, created once per Session.
 ---@class JeanProvider
 ---@field new fun(self, opts: JeanProviderOpts): JeanProvider
 ---Start answering one prompt. Exactly one `done` message follows unless the
----prompt is stopped. The provider keeps its own resume token across prompts.
+---prompt is stopped. Called only when no prompt is in flight: the Session
+---queues prompts and sends the next after this one's `done` (or `stop`).
+---The provider keeps its own resume token across prompts.
 ---@field prompt fun(self, text: string)
 ---Stop the in-flight prompt; no further messages for it are delivered.
 ---@field stop fun(self)

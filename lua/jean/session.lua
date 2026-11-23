@@ -1,4 +1,30 @@
 local GLOBAL_SESSION_ID = '__GLOBAL__'
+local PI_SOCKET_SESSION_ID = '__PI_SOCKET__'
+
+-- A pi that launched this nvim (pi-editor) passes its RPC socket; then every
+-- buffer talks to that pi through one session
+local pi_socket = vim.env.PI_RPC_SOCKET ~= '' and vim.env.PI_RPC_SOCKET or nil
+local pi_socket_pwd = pi_socket and vim.fn.getcwd()
+-- Not inherited by processes nvim spawns
+vim.env.PI_RPC_SOCKET = nil
+
+---@alias JeanPromptResult {success: boolean, error?: string}
+
+---A prompt submitted to a Session: waiting in its queue, or being answered
+---once `sent`.
+---@class QueuedPrompt
+---@field text string
+---@field context boolean prepend jean's context when sent
+---@field echo boolean render `text` in the chat window when sent
+---@field show_spinner boolean
+---@field spinner {destroy: fun(self)}|nil
+---@field sent boolean
+---@field on_start? fun()
+---@field on_message? fun(message: JeanMessage)
+---@field on_done? fun(result: JeanPromptResult)
+
+---@class JeanPromptHandle
+---@field cancel fun(): boolean remove the prompt from the queue, stopping it if it runs; false if it already finished
 
 ---@class Session
 ---@field id string
@@ -6,7 +32,9 @@ local GLOBAL_SESSION_ID = '__GLOBAL__'
 ---@field last_context string|nil
 ---@field provider JeanProvider
 ---@field provider_class table class `provider` was created from
----@field active_prompt {win: Window, spinner: {destroy: fun(self)}|nil, on_message: fun(message: JeanMessage)|nil, on_done: fun(result: {success: boolean, error?: string})|nil}|nil the prompt being answered
+---@field queue QueuedPrompt[] prompts in submission order; only the head is ever sent
+---@field socket string|nil PI_RPC_SOCKET for the provider
+---@field _stops number how often the provider was stopped, to drop messages it emitted before
 ---@field last_buffer Buffer|nil
 ---@field last_buffer_winid number|nil
 ---@field pwd string
@@ -17,6 +45,8 @@ local Session = {}
 function Session:new(opts)
   local instance = vim.tbl_extend('keep', {
     history = {},
+    queue = {},
+    _stops = 0,
   }, opts)
   setmetatable(instance, self)
   self.__index = self
@@ -29,9 +59,15 @@ function Session:_create_provider()
   self.provider_class = require('jean.config').create_provider(self)
   self.provider = self.provider_class:new({
     pwd = self.pwd,
-    on_message = vim.schedule_wrap(function(message)
-      self:_on_message(message)
-    end),
+    socket = self.socket,
+    on_message = function(message)
+      local stops = self._stops
+      vim.schedule(function()
+        if message.foreign or stops == self._stops then
+          self:_on_message(message)
+        end
+      end)
+    end,
   })
 end
 
@@ -45,9 +81,15 @@ function Session:_ensure_provider()
   return self.provider
 end
 
+---@return QueuedPrompt|nil the prompt the provider is answering
+function Session:_running()
+  local head = self.queue[1]
+  return head and head.sent and head or nil
+end
+
 ---@param message JeanMessage
 function Session:_on_message(message)
-  local prompt = not message.foreign and self.active_prompt or nil
+  local prompt = not message.foreign and self:_running() or nil
   if message.type ~= 'text_delta' then
     self.history[#self.history + 1] = message
   end
@@ -55,22 +97,26 @@ function Session:_on_message(message)
     prompt.on_message(message)
   end
 
+  local done = message.type == 'done'
+  if done and prompt then
+    table.remove(self.queue, 1)
+  end
+
   local win = self:window()
   if win then
     self:_process_message(win, message)
-  elseif message.type == 'done' then
-    -- No window to render into, but the prompt is still finished
-    if not message.foreign then
-      self.active_prompt = nil
-    end
+  elseif done then
     self.streaming_text = false
-    if prompt and prompt.spinner then
-      prompt.spinner:destroy()
-    end
   end
 
-  if message.type == 'done' and prompt and prompt.on_done then
-    prompt.on_done({ success = not message.error, error = message.error })
+  if done and prompt then
+    if prompt.spinner then
+      prompt.spinner:destroy()
+    end
+    if prompt.on_done then
+      prompt.on_done({ success = not message.error, error = message.error })
+    end
+    self:_send_next()
   end
 end
 
@@ -102,7 +148,7 @@ function Session:_process_message(win, message)
   if message.type == 'user_prompt' then
     self.streaming_text = false
     local last_line = vim.api.nvim_buf_get_lines(win.bufnr, -2, -1, false)[1]
-    if self.active_prompt or last_line ~= '' then
+    if self:_running() or last_line ~= '' then
       win:append_request_header()
     end
     win.buffer.o.modifiable = false
@@ -148,26 +194,21 @@ function Session:_process_message(win, message)
 
     -- TODO: Consider adding the diff to the buffer, but folded
   elseif message.type == 'done' then
-    local prompt = not message.foreign and self.active_prompt or nil
-    if not message.foreign then
-      self.active_prompt = nil
-    end
+    -- A foreign run can end while jean's own prompt is still being answered
+    local running = self:_running()
     self.streaming_text = false
 
     -- Make the buffer editable again so the user can type the next request,
-    -- unless jean's own prompt is still being answered
-    win.buffer.o.modifiable = not self.active_prompt
-
-    if prompt and prompt.spinner then
-      prompt.spinner:destroy()
-    end
+    -- unless jean's own prompt is still being answered. A queued prompt is
+    -- sent next and makes it read-only again.
+    win.buffer.o.modifiable = not running
 
     if message.error then
       win:append_response('error', message.error)
-      if self.active_prompt then
+      if running then
         win:append_response_header('success')
       end
-    elseif self.active_prompt then
+    elseif running then
       win:append_response_header('success')
     else
       win:append_request_header()
@@ -179,7 +220,7 @@ function Session:_process_message(win, message)
       check_for_buffer_edits()
 
       if require('jean.config').dismiss_window_after_edits then
-        (prompt and prompt.win or win):hide()
+        win:hide()
       end
     end
   end
@@ -187,9 +228,23 @@ end
 
 ---@return boolean did_cancel *if* we canceled something
 function Session:cancel_active_prompt()
-  local prompt = self.active_prompt
-  self.active_prompt = nil
-  if prompt then
+  local prompt = self:_running()
+  return prompt ~= nil and self:_cancel(prompt)
+end
+
+---@param prompt QueuedPrompt
+---@return boolean
+function Session:_cancel(prompt)
+  local index = vim.iter(ipairs(self.queue)):find(function(_, queued)
+    return queued == prompt
+  end)
+  if not index then
+    return false
+  end
+  table.remove(self.queue, index)
+
+  if prompt.sent then
+    self._stops = self._stops + 1
     self.provider:stop()
     if prompt.spinner then
       prompt.spinner:destroy()
@@ -201,45 +256,92 @@ function Session:cancel_active_prompt()
       win.buffer.o.modifiable = true
       win:append_response('error', 'Execution canceled.')
     end
-    if prompt.on_done then
-      prompt.on_done({ success = false, error = 'Execution canceled.' })
-    end
-    return true
-  else
-    return false
   end
+  if prompt.on_done then
+    prompt.on_done({ success = false, error = 'Execution canceled.' })
+  end
+  self:_send_next()
+  return true
 end
 
 ---@class SubmitPromptOpts
 ---@field spinner? boolean show the cursor-following spinner (default true)
----@field on_message? fun(message: JeanMessage)
----@field on_done? fun(result: {success: boolean, error?: string})
+---@field context? boolean prepend jean's context about the user's buffer (default true)
+---@field echo? boolean render the prompt text in the chat window when it's sent (default false)
+---@field on_start? fun() the prompt was sent to the provider
+---@field on_message? fun(message: JeanMessage) a message of this prompt's run
+---@field on_done? fun(result: JeanPromptResult) the run ended, or the prompt was cancelled
 
+---Queue a prompt. Prompts are answered one at a time in submission order, and
+---each one's callbacks only see messages of its own run.
+---
+---The chat window renders each prompt's response when the prompt is sent.
+---With `echo`, the session also renders the prompt text then, so it lands
+---after the responses to earlier prompts. Without it, the caller already put
+---the text in the window's request area (the chat window's own input), which
+---only works while nothing else is being answered.
 ---@param prompt string
 ---@param opts? SubmitPromptOpts
+---@return JeanPromptHandle
 function Session:submit_prompt(prompt, opts)
   opts = opts or {}
-  local initial_win = self:window()
-  if not initial_win then
+  if not self:window() then
     error('No window in which to submit prompt...')
-    return
   end
 
+  ---@type QueuedPrompt
+  local queued = {
+    text = prompt,
+    context = opts.context ~= false,
+    echo = opts.echo == true,
+    show_spinner = opts.spinner ~= false,
+    sent = false,
+    on_start = opts.on_start,
+    on_message = opts.on_message,
+    on_done = opts.on_done,
+  }
+  self.queue[#self.queue + 1] = queued
+  self:_send_next()
+  return {
+    cancel = function()
+      return self:_cancel(queued)
+    end,
+  }
+end
+
+---Send the head of the queue to the provider, unless it's already been sent
+function Session:_send_next()
+  local prompt = self.queue[1]
+  if not prompt or prompt.sent then
+    return
+  end
+  prompt.sent = true
+
+  local win = assert(self:window())
   self.streaming_text = false
+  if prompt.echo then
+    local last_line = vim.api.nvim_buf_get_lines(win.bufnr, -2, -1, false)[1]
+    if last_line ~= '' then
+      win:append_request_header()
+    end
+    win:append_text_and_follow(prompt.text)
+  end
 
   -- Disable modification while we process
-  initial_win.buffer.o.modifiable = false
-  initial_win:append_response_header('success')
+  win.buffer.o.modifiable = false
+  win:append_response_header('success')
 
   -- Before the context check: swapping the provider resets last_context
   local provider = self:_ensure_provider()
-  local context = require('jean.context').build(self)
-  local to_send = prompt
-  if self.last_context ~= context then
-    if context then
-      to_send = context .. '\n\n' .. to_send
+  local to_send = prompt.text
+  if prompt.context then
+    local context = require('jean.context').build(self)
+    if self.last_context ~= context then
+      if context then
+        to_send = context .. '\n\n' .. to_send
+      end
+      self.last_context = context
     end
-    self.last_context = context
   end
 
   -- Reset the qflist.
@@ -248,14 +350,19 @@ function Session:submit_prompt(prompt, opts)
     items = {},
   })
 
-  self.active_prompt = {
-    win = initial_win,
+  if prompt.show_spinner then
     -- Show a spinner by the cursor while the agent thinks
-    spinner = opts.spinner ~= false and require('jean.spinner'):new() or nil,
-    on_message = opts.on_message,
-    on_done = opts.on_done,
-  }
-  provider:prompt(to_send)
+    prompt.spinner = require('jean.spinner'):new()
+  end
+  if prompt.on_start then
+    prompt.on_start()
+  end
+
+  -- A provider that can't start (e.g. its CLI is missing) must not stall the queue
+  local ok, err = pcall(provider.prompt, provider, to_send)
+  if not ok then
+    self:_on_message({ type = 'done', error = tostring(err) })
+  end
 end
 
 function Session:window()
@@ -277,8 +384,9 @@ local M = {
   _sessions = {},
 }
 
+---@param socket? string
 ---@return Session
-function M._get_or_create(id, pwd)
+function M._get_or_create(id, pwd, socket)
   local existing = M._sessions[id]
   if existing then
     return existing
@@ -288,7 +396,7 @@ function M._get_or_create(id, pwd)
     error('Missing pwd for non-global session')
   end
 
-  local new = Session:new({ id = id, pwd = pwd or id })
+  local new = Session:new({ id = id, pwd = pwd or id, socket = socket })
   M._sessions[id] = new
   return new
 end
@@ -298,6 +406,10 @@ function M.global()
 end
 
 function M.from_buffer(bufnr)
+  if pi_socket then
+    return M._get_or_create(PI_SOCKET_SESSION_ID, pi_socket_pwd, pi_socket)
+  end
+
   local nr = bufnr or 0
 
   local session_id = vim.b[nr].jean_session_id

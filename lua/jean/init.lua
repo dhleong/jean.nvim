@@ -13,9 +13,8 @@ end
 function M.submit(prompt)
   local session = require('jean.session').from_buffer()
   session:capture_context_source()
-  local win = require('jean.window').open(session, { startinsert = false })
-  win:append_lines_and_follow(prompt)
-  session:submit_prompt(prompt)
+  require('jean.window').open(session, { startinsert = false })
+  session:submit_prompt(prompt, { echo = true })
 end
 
 ---Open a floating prompt at the cursor; the response shows as a chip on this line
