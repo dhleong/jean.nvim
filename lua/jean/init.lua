@@ -32,6 +32,10 @@ function M.setup(opts)
     end
   end
 
+  if opts and opts.thread_store then
+    Config.thread_store = opts.thread_store
+  end
+
   -- TODO
 end
 
