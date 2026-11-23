@@ -8,12 +8,13 @@ local M = {
 }
 
 ---@param buf Buffer
-local function configure_buffer(buf)
+---@param pwd string
+local function configure_buffer(buf, pwd)
   buf.o.filetype = 'markdown'
 
   -- Initialize content
   buf:append_lines({
-    '> *Root Dir*: ' .. buf.vars.jean_session_id,
+    '> *Root Dir*: ' .. pwd,
     '',
     require('jean.config').request_separator,
     '',
@@ -91,7 +92,7 @@ function Window:new(opts)
     instance.buffer.vars.jean_session_id = opts.session_id
     instance.buffer.vars.jean_nvim_managed = true
 
-    configure_buffer(instance.buffer)
+    configure_buffer(instance.buffer, opts.pwd)
 
     -- NOTE: The window isn't shown yet; wait until it is to move the cursor
     vim.schedule(function()
@@ -232,7 +233,7 @@ function M._get_or_create(session)
     return existing
   end
 
-  local new = Window:new({ session_id = session.id })
+  local new = Window:new({ session_id = session.id, pwd = session.pwd })
   M._by_session[session.id] = new
   return new
 end

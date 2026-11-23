@@ -45,4 +45,13 @@ t.test('with PI_RPC_SOCKET at load, every buffer maps to one socket session', fu
   t.eq(SOCKET, Fake.instances[1].opts.socket)
 end)
 
+t.test('the socket session chat header shows its pwd, not its id', function()
+  vim.env.PI_RPC_SOCKET = SOCKET
+  t.use_fake_provider()
+  local window = require('jean.window')
+  local session = require('jean.session').from_buffer(in_a)
+
+  t.eq('> *Root Dir*: ' .. cwd, vim.api.nvim_buf_get_lines(window._get_or_create(session).bufnr, 0, 1, false)[1])
+end)
+
 t.finish()

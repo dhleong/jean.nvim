@@ -197,8 +197,6 @@ t.test('a provider that fails to start ends its prompt and the queue goes on', f
 end)
 
 t.test('jean.submit renders queued prompts in order in the chat window', function()
-  -- Keep project.lua's vim-test strategy from failing without vim-test
-  vim.g['test#project_root'] = '/nonexistent'
   t.use_fake_provider()
   local jean = require('jean')
   jean.submit('first')

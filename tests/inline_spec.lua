@@ -1,8 +1,5 @@
 local t = require('helpers')
 
--- project.lua's vim-test lookup needs this set
-vim.g['test#project_root'] = vim.fn.getcwd()
-
 ---Run a buffer-local normal-mode mapping of the current buffer
 ---@param lhs string
 local function press(lhs)
