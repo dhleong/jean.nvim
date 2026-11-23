@@ -1039,7 +1039,10 @@ function M.read_buffer(bufnr)
       return
     end
     for _, thread in ipairs(threads) do
-      T.bind(thread, bufnr)
+      -- Another read of this buffer may have bound it while the store loaded
+      if thread.bufnr ~= bufnr then
+        T.bind(thread, bufnr)
+      end
       ensure_chip(thread)
     end
     reattach(bufnr)

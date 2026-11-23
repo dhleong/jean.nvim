@@ -241,6 +241,57 @@ t.test('threads load from the store when their file is read again', function()
   teardown()
 end)
 
+t.test('overlapping reads through a yielding store bind each thread once', function()
+  setup()
+  local bufnr, path = open_file({ 'a', 'b' })
+  local win = vim.api.nvim_get_current_win()
+  ask(2, 'hi')
+  back_to(win)
+  local T = require('jean.thread')
+  local memory = T.store()
+  require('jean').setup({
+    thread_store = {
+      load = function(_, p)
+        T.await(vim.schedule)
+        return memory:load(p)
+      end,
+      save = function(_, thread)
+        memory:save(thread)
+      end,
+      remove = function(_, thread)
+        memory:remove(thread)
+      end,
+    },
+  })
+  vim.cmd.bwipeout(bufnr)
+  vim.cmd.edit(path)
+  bufnr = vim.api.nvim_get_current_buf()
+  require('jean.inline').read_buffer(bufnr)
+  t.flush()
+  t.flush()
+
+  local thread_ns = vim.api.nvim_create_namespace('jean.thread')
+  t.eq(1, #T.list())
+  t.eq(1, #vim.api.nvim_buf_get_extmarks(bufnr, thread_ns, 0, -1, {}))
+  t.eq(bufnr, T.list()[1].bufnr)
+  teardown()
+end)
+
+t.test('a threaded buffer whose file is deleted keeps its lines and threads', function()
+  setup()
+  local bufnr, path = open_file({ 'a', 'b' })
+  local win = vim.api.nvim_get_current_win()
+  ask(2, 'hi')
+  back_to(win)
+  os.remove(path)
+  vim.cmd.checktime(bufnr)
+  local thread = require('jean.thread').list()[1]
+  t.eq({ 'a', 'b' }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+  t.eq({ bufnr, false, 2 }, { thread.bufnr, thread.detached, thread.last_row })
+  t.eq({ ' ⠋ hi' }, steady(chips(bufnr)))
+  teardown()
+end)
+
 t.test('an unmodified threaded buffer reloads from disk without a prompt', function()
   setup()
   local bufnr, path = open_file({ 'a', 'b' })
