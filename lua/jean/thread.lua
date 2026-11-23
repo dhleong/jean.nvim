@@ -123,10 +123,20 @@ function M.create(opts)
     updated_at = now,
   }
   if opts.bufnr then
-    thread.extmark = vim.api.nvim_buf_set_extmark(opts.bufnr, ns, opts.row - 1, 0, {})
+    M.bind(thread, opts.bufnr)
   end
   M.by_id[thread.id] = thread
   return thread
+end
+
+---Track the thread in a loaded buffer with a new extmark at `last_row`
+---(clamped to the buffer). Deleting its line invalidates the extmark.
+---@param thread Thread
+---@param bufnr integer
+function M.bind(thread, bufnr)
+  local row = math.min(thread.last_row, vim.api.nvim_buf_line_count(bufnr))
+  thread.bufnr = bufnr
+  thread.extmark = vim.api.nvim_buf_set_extmark(bufnr, ns, row - 1, 0, { invalidate = true })
 end
 
 ---@param thread Thread
@@ -137,11 +147,19 @@ function M.delete(thread)
   M.by_id[thread.id] = nil
 end
 
----Follow the extmark: update `last_row`, and `anchor_text` if the user edited that line
+---Follow the extmark: update `last_row`, and `anchor_text` if the user edited
+---that line. Deleting the line detaches the thread, keeping its anchor.
 ---@param thread Thread
 function M.sync(thread)
-  local pos = vim.api.nvim_buf_get_extmark_by_id(thread.bufnr, ns, thread.extmark, {})
+  if not (thread.bufnr and thread.extmark) or thread.detached then
+    return
+  end
+  local pos = vim.api.nvim_buf_get_extmark_by_id(thread.bufnr, ns, thread.extmark, { details = true })
   if #pos == 0 then
+    return
+  end
+  if pos[3].invalid then
+    thread.detached = true
     return
   end
   thread.last_row = pos[1] + 1
@@ -158,7 +176,7 @@ function M.attach(thread, row)
   thread.last_row = row
   thread.detached = false
   if thread.bufnr and thread.extmark then
-    vim.api.nvim_buf_set_extmark(thread.bufnr, ns, row - 1, 0, { id = thread.extmark })
+    vim.api.nvim_buf_set_extmark(thread.bufnr, ns, row - 1, 0, { id = thread.extmark, invalidate = true })
   end
 end
 

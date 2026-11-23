@@ -17,9 +17,30 @@ function M.submit(prompt)
   session:submit_prompt(prompt, { echo = true })
 end
 
----Open a floating prompt at the cursor; the response shows as a chip on this line
+---Open a floating prompt at the cursor: a new thread on this line, or a reply
+---in the thread already there
 function M.prompt_inline()
   require('jean.inline').prompt()
+end
+
+---Jump to the next thread in this buffer, wrapping around
+function M.next_thread()
+  require('jean.inline').next_thread()
+end
+
+---Jump to the previous thread in this buffer, wrapping around
+function M.prev_thread()
+  require('jean.inline').prev_thread()
+end
+
+---Pick a thread in the project to jump to, or fill the quickfix list with them
+function M.threads()
+  require('jean.inline').threads()
+end
+
+---Re-attach a detached thread of this buffer to the cursor line
+function M.attach_thread()
+  require('jean.inline').attach_thread()
 end
 
 function M.setup(opts)
