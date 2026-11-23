@@ -514,8 +514,6 @@ t.test('pi: two threads with the same text each get their own reply', function()
   teardown()
 end)
 
-t.finish()
-
 t.test('chip previews the latest message of the thread', function()
   local Fake = setup()
   local bufnr = open_file({ 'one', 'two' })
@@ -527,8 +525,10 @@ t.test('chip previews the latest message of the thread', function()
 
   local provider = Fake.instances[1]
   provider:emit({ type = 'text_delta', text = '## The ' })
+  t.flush()
   t.eq({ ' ⠋ The' }, steady(chips(bufnr)))
   provider:emit({ type = 'text_delta', text = '**answer**\nis here' })
+  t.flush()
   t.eq({ ' ⠋ The **answer** is here' }, steady(chips(bufnr)))
   provider:emit({ type = 'text', text = '## The **answer**\nis here', streamed = true })
   provider:emit({ type = 'done' })
@@ -537,9 +537,11 @@ t.test('chip previews the latest message of the thread', function()
 
   ask(1, 'and then?')
   back_to(win)
-  t.eq({ ' … you: and then?' }, chips(bufnr))
+  t.eq({ ' ⠋ you: and then?' }, steady(chips(bufnr)))
   for _, label in ipairs(chips(bufnr)) do
     t.eq(nil, label:find('[jean thread', 1, true))
   end
   teardown()
 end)
+
+t.finish()
