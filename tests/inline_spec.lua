@@ -113,7 +113,7 @@ t.test('two queued threads in one buffer: each reply lands in its own thread', f
   t.eq(1, #provider.prompts)
   t.eq(('[jean thread %s · %s · near line 1 · "one"]\nabout one'):format(a.id, a.path), provider.prompts[1])
   t.eq({ { 'about three', 'queued', {} } }, responses(b))
-  t.eq({ ' ⠋ about one', ' … about three' }, steady(chips(bufnr)))
+  t.eq({ ' ⠋ you: about one', ' … you: about three' }, steady(chips(bufnr)))
 
   provider:emit({ type = 'text_delta', text = 'reply ' })
   provider:emit({ type = 'text', text = 'reply A', streamed = true })
@@ -129,7 +129,7 @@ t.test('two queued threads in one buffer: each reply lands in its own thread', f
   t.eq({ { 'about one', 'done', { 'reply A' } } }, responses(a))
   t.eq({ { 'about three', 'error', { 'reply B' } } }, responses(b))
   t.eq('boom', b.exchanges[1].error)
-  t.eq({ ' ● about one', ' ✗ about three' }, chips(bufnr))
+  t.eq({ ' ● reply A', ' ✗ boom' }, chips(bufnr))
   teardown()
 end)
 
@@ -309,7 +309,7 @@ t.test('threads re-attach after the file is rewritten on disk', function()
   -- q4 is detached at its old row, which q2 now holds
   local labels = steady(chips(bufnr))
   table.sort(labels)
-  t.eq({ ' … q3', ' ⚠ q4', ' ⠋ q2' }, labels)
+  t.eq({ ' … you: q3', ' ⚠ you: q4', ' ⠋ you: q2' }, labels)
   t.eq(3, #require('jean.thread').list())
 
   -- and attach it again by hand
@@ -332,7 +332,7 @@ t.test('threads load from the store when their file is read again', function()
   rewrite(path, { 'top', 'a', 'b' })
   vim.cmd.edit(path)
   t.eq({ vim.api.nvim_get_current_buf(), 3 }, { thread.bufnr, thread.last_row })
-  t.eq({ ' ⠋ hi' }, steady(chips(thread.bufnr)))
+  t.eq({ ' ⠋ you: hi' }, steady(chips(thread.bufnr)))
   teardown()
 end)
 
@@ -383,7 +383,7 @@ t.test('a threaded buffer whose file is deleted keeps its lines and threads', fu
   local thread = require('jean.thread').list()[1]
   t.eq({ 'a', 'b' }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
   t.eq({ bufnr, false, 2 }, { thread.bufnr, thread.detached, thread.last_row })
-  t.eq({ ' ⠋ hi' }, steady(chips(bufnr)))
+  t.eq({ ' ⠋ you: hi' }, steady(chips(bufnr)))
   teardown()
 end)
 
@@ -515,3 +515,31 @@ t.test('pi: two threads with the same text each get their own reply', function()
 end)
 
 t.finish()
+
+t.test('chip previews the latest message of the thread', function()
+  local Fake = setup()
+  local bufnr = open_file({ 'one', 'two' })
+  local win = vim.api.nvim_get_current_win()
+
+  ask(1, 'first\nquestion')
+  back_to(win)
+  t.eq({ ' ⠋ you: first question' }, steady(chips(bufnr)))
+
+  local provider = Fake.instances[1]
+  provider:emit({ type = 'text_delta', text = '## The ' })
+  t.eq({ ' ⠋ The' }, steady(chips(bufnr)))
+  provider:emit({ type = 'text_delta', text = '**answer**\nis here' })
+  t.eq({ ' ⠋ The **answer** is here' }, steady(chips(bufnr)))
+  provider:emit({ type = 'text', text = '## The **answer**\nis here', streamed = true })
+  provider:emit({ type = 'done' })
+  t.flush()
+  t.eq({ ' ● The **answer** is here' }, chips(bufnr))
+
+  ask(1, 'and then?')
+  back_to(win)
+  t.eq({ ' … you: and then?' }, chips(bufnr))
+  for _, label in ipairs(chips(bufnr)) do
+    t.eq(nil, label:find('[jean thread', 1, true))
+  end
+  teardown()
+end)

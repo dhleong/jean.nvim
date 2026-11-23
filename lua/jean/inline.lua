@@ -81,6 +81,7 @@ local buffers = {}
 ---@field thread Thread
 ---@field selected boolean
 ---@field mark_id number|nil
+---@field rendered string|nil position and label of the extmark, so streaming only redraws when the preview changes
 ---@field spinner Spinner|nil
 ---@field frame string|nil current spinner frame
 ---@field screen_col number|nil 0-indexed editor column the mini window is anchored at
@@ -113,6 +114,26 @@ function Chip:status()
   return thread_status(self.thread, self.frame)
 end
 
+---What the thread last said: the error, else the start of the last response
+---block, else the user's pending prompt (marked `you:`)
+---@return string one line
+function Chip:_preview()
+  local exchange = self.thread.exchanges[#self.thread.exchanges]
+  if not exchange then
+    return ''
+  end
+  local text = exchange.error
+  local block = exchange.blocks[#exchange.blocks]
+  if not text and block then
+    text = block.text:gsub('^[%s#*>_`%-]+', '')
+  end
+  text = vim.trim((text or ''):gsub('%s+', ' '))
+  if text ~= '' then
+    return text
+  end
+  return 'you: ' .. vim.trim(exchange.prompt:gsub('%s+', ' '))
+end
+
 ---@return string
 function Chip:_label()
   local bufnr = self.thread.bufnr
@@ -126,8 +147,7 @@ function Chip:_label()
 
   -- space + status + space around the prompt
   local available = width - vim.fn.strdisplaywidth(line) - 3
-  local exchange = self.thread.exchanges[#self.thread.exchanges]
-  local prompt = (exchange and exchange.prompt or ''):gsub('%s+', ' ')
+  local prompt = self:_preview()
   if vim.fn.strdisplaywidth(prompt) > available then
     local chars = math.max(available - 1, 0)
     while chars > 0 and vim.fn.strdisplaywidth(vim.fn.strcharpart(prompt, 0, chars)) > available - 1 do
@@ -143,9 +163,15 @@ function Chip:render()
   local row = self:row()
   local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
   local hl = self.selected and 'JeanChipSelected' or 'JeanChip'
+  local virt_text = not self.mini and { { self:_label(), hl } } or nil
+  local key = vim.inspect({ row, #line, virt_text })
+  if self.mark_id and key == self.rendered then
+    return
+  end
+  self.rendered = key
   self.mark_id = vim.api.nvim_buf_set_extmark(bufnr, ns, row, #line, {
     id = self.mark_id,
-    virt_text = not self.mini and { { self:_label(), hl } } or nil,
+    virt_text = virt_text,
     virt_text_pos = 'inline',
     right_gravity = true,
   })
