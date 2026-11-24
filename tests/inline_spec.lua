@@ -46,7 +46,7 @@ local notes
 ---@return FakeProvider
 local function setup()
   local Fake = t.use_fake_provider()
-  vim.cmd.runtime('plugin/jean.lua')
+  require('jean').setup({})
   notes = {}
   vim.notify = function(msg)
     notes[#notes + 1] = msg
