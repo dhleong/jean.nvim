@@ -25,7 +25,7 @@ t.test('without PI_RPC_SOCKET, sessions follow project roots', function()
   t.eq(project_a, require('jean.project').root_for_buffer(in_a))
   t.eq(project_a, sessions.from_buffer(in_a).id)
   t.eq(cwd, sessions.from_buffer(in_cwd).id)
-  t.eq(nil, Fake.instances[1].opts.socket)
+  t.eq(nil, Fake.instances[1].opts.socket_path)
 end)
 
 t.test('with PI_RPC_SOCKET at load, every buffer maps to one socket session', function()
@@ -42,7 +42,7 @@ t.test('with PI_RPC_SOCKET at load, every buffer maps to one socket session', fu
   t.eq(session, sessions.from_buffer(require('jean.window')._get_or_create(session).bufnr))
 
   t.eq(1, #Fake.instances)
-  t.eq(SOCKET, Fake.instances[1].opts.socket)
+  t.eq(SOCKET, Fake.instances[1].opts.socket_path)
 end)
 
 t.test('the socket session chat header shows its pwd, not its id', function()

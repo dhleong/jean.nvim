@@ -41,7 +41,7 @@
 ---@class JeanProviderOpts
 ---@field pwd string
 ---@field on_message fun(msg: JeanMessage) may be called at any time, not only while a prompt is running
----@field socket? string PI_RPC_SOCKET of the pi that launched nvim, for providers that can use it
+---@field socket_path? string PI_RPC_SOCKET of the pi that launched nvim, for providers that can use it
 
 ---A long-lived connection to an agent, created once per Session.
 ---@class JeanProvider

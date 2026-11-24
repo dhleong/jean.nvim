@@ -33,7 +33,7 @@ vim.env.PI_RPC_SOCKET = nil
 ---@field provider JeanProvider
 ---@field provider_class table class `provider` was created from
 ---@field queue QueuedPrompt[] prompts in submission order; only the head is ever sent
----@field socket string|nil PI_RPC_SOCKET for the provider
+---@field socket_path string|nil PI_RPC_SOCKET for the provider
 ---@field _stops number how often the provider was stopped, to drop messages it emitted before
 ---@field last_buffer Buffer|nil
 ---@field last_buffer_winid number|nil
@@ -59,7 +59,7 @@ function Session:_create_provider()
   self.provider_class = require('jean.config').create_provider(self)
   self.provider = self.provider_class:new({
     pwd = self.pwd,
-    socket = self.socket,
+    socket_path = self.socket_path,
     on_message = function(message)
       local stops = self._stops
       vim.schedule(function()
@@ -384,9 +384,9 @@ local M = {
   _sessions = {},
 }
 
----@param socket? string
+---@param socket_path? string
 ---@return Session
-function M._get_or_create(id, pwd, socket)
+function M._get_or_create(id, pwd, socket_path)
   local existing = M._sessions[id]
   if existing then
     return existing
@@ -396,7 +396,7 @@ function M._get_or_create(id, pwd, socket)
     error('Missing pwd for non-global session')
   end
 
-  local new = Session:new({ id = id, pwd = pwd or id, socket = socket })
+  local new = Session:new({ id = id, pwd = pwd or id, socket_path = socket_path })
   M._sessions[id] = new
   return new
 end

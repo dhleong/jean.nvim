@@ -35,7 +35,7 @@
 ---@field pwd string
 ---@field on_message fun(msg: JeanMessage)
 ---@field resume_token string|nil
----@field socket string|nil PI_RPC_SOCKET to connect to instead of spawning pi
+---@field socket_path string|nil PI_RPC_SOCKET to connect to instead of spawning pi
 ---@field _conn PiConnection|nil
 ---@field _prompt PiPrompt|nil
 ---@field _foreign PiForeignRun|nil
@@ -171,7 +171,7 @@ function Pi:new(opts)
   instance._rejected = false
   setmetatable(instance, self)
   self.__index = self
-  if instance.socket then
+  if instance.socket_path then
     instance:_open()
   end
   return instance
@@ -323,7 +323,7 @@ end
 ---Retry connecting to the socket with growing delays, until it's gone or
 ---another client took it.
 function Pi:_schedule_reconnect()
-  if not self.socket or self._rejected or self._reconnect or not vim.uv.fs_stat(self.socket) then
+  if not self.socket_path or self._rejected or self._reconnect or not vim.uv.fs_stat(self.socket_path) then
     return
   end
   local delay = self._backoff or 1000
@@ -356,7 +356,7 @@ function Pi:_open()
   }
   self._conn = conn
 
-  if self.socket then
+  if self.socket_path then
     local pipe = assert(vim.uv.new_pipe())
     local pending = {} ---@type string[]|nil
     conn.send = function(line)
@@ -371,7 +371,7 @@ function Pi:_open()
         pipe:close()
       end
     end
-    pipe:connect(self.socket, function(connect_err)
+    pipe:connect(self.socket_path, function(connect_err)
       if connect_err then
         conn.close()
         self:_on_closed(conn, 'pi disconnected: ' .. connect_err)
