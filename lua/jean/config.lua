@@ -23,7 +23,7 @@ function M.create_provider(session)
 end
 
 ---@type ThreadStore
-M.thread_store = require('jean.thread.memory'):new()
+M.thread_store = require('jean.threads.memory'):new()
 
 M.request_separator = '## Request'
 M.dismiss_window_after_edits = true

@@ -2,11 +2,11 @@ local t = require('helpers')
 local test, eq = t.test, t.eq
 
 local function new(text, row, path)
-  return require('jean.thread').create({ path = path or '/proj/plan.md', row = row, text = text })
+  return require('jean.threads').create({ path = path or '/proj/plan.md', row = row, text = text })
 end
 
 test('leading id parser', function()
-  local id = require('jean.thread').leading_id
+  local id = require('jean.threads').leading_id
   eq('T3', id('### T3 · title'))
   eq('C2', id('- **C2.** Should we?'))
   eq('Q4', id('Q4: what'))
@@ -19,7 +19,7 @@ test('leading id parser', function()
 end)
 
 test('reanchor follows exact text after lines are inserted above', function()
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local th = new('hello world', 2)
   eq(true, T.reanchor(th, { 'new', 'new', 'a', 'hello world', 'b' }))
   eq(4, th.last_row)
@@ -27,14 +27,14 @@ test('reanchor follows exact text after lines are inserted above', function()
 end)
 
 test('reanchor picks the duplicate closest to last_row', function()
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local th = new('same', 5)
   T.reanchor(th, { 'same', 'x', 'x', 'x', 'x', 'x', 'same', 'x', 'x', 'x', 'x', 'x', 'x', 'same' })
   eq(7, th.last_row)
 end)
 
 test('reanchor falls back to the leading id and refreshes the text', function()
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local th = new('- **C2.** Should we ship?', 3)
   eq(true, T.reanchor(th, { 'a', 'b', 'c', '- **C1.** other', '- **C2.** Should we ship it now?' }))
   eq(5, th.last_row)
@@ -42,7 +42,7 @@ test('reanchor falls back to the leading id and refreshes the text', function()
 end)
 
 test('reanchor detaches when text and id are gone, keeping history', function()
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local th = new('- **C2.** Should we?', 3)
   th.exchanges[1] = { prompt = 'hi', blocks = {}, status = 'done' }
   eq(false, T.reanchor(th, { 'nothing', 'here' }))
@@ -55,7 +55,7 @@ test('reanchor detaches when text and id are gone, keeping history', function()
 end)
 
 test('extmark tracks edits and refreshes the anchor text', function()
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, { 'a', 'Q4: old', 'b' })
   local th = T.create({ path = '/proj/p.md', bufnr = buf, row = 2, text = 'Q4: old' })
@@ -68,7 +68,7 @@ test('extmark tracks edits and refreshes the anchor text', function()
 end)
 
 test('deleting the anchor line detaches instead of adopting the next line', function()
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, { 'a', 'Q4: old', 'b' })
   local th = T.create({ path = '/proj/p.md', bufnr = buf, row = 2, text = 'Q4: old' })
@@ -81,7 +81,7 @@ test('deleting the anchor line detaches instead of adopting the next line', func
 end)
 
 test('header format and parse round-trip', function()
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local th = new('  - **C2.** Should we "ship"?  ', 7, '/proj/.pi/build/x/plan.md')
   local text = T.format_prompt(th, 'Yes\nplease', { pwd = '/proj', row = 9 })
   eq('[jean thread t1 · .pi/build/x/plan.md · near line 9 · "- **C2.** Should we "ship"?"]\nYes\nplease', text)
@@ -93,7 +93,7 @@ test('header format and parse round-trip', function()
 end)
 
 test('header truncates long anchors and keeps absolute paths outside pwd', function()
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local th = new(string.rep('x', 300), 1, '/elsewhere/f.md')
   local parsed = T.parse_header(T.format_prompt(th, 'hi', { pwd = '/proj' }))
   eq('/elsewhere/f.md', parsed.path)
@@ -101,7 +101,7 @@ test('header truncates long anchors and keeps absolute paths outside pwd', funct
 end)
 
 test('list is sorted by path then row, optionally per path', function()
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local a = new('a', 9, '/b.md')
   local b = new('b', 2, '/b.md')
   local c = new('c', 5, '/a.md')
@@ -112,7 +112,7 @@ test('list is sorted by path then row, optionally per path', function()
 end)
 
 test('memory store driven through a yielding coroutine', function()
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local th = new('a', 1)
   local loaded
   T.run(function()
@@ -138,7 +138,7 @@ end)
 test('setup installs a custom thread store', function()
   local store = { load = function() return {} end, save = function() end, remove = function() end }
   require('jean').setup({ thread_store = store })
-  eq(store, require('jean.thread').store())
+  eq(store, require('jean.threads').store())
 end)
 
 t.finish()

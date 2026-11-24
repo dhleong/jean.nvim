@@ -9,7 +9,7 @@ local NOTIFY_MAX_LINES = 5
 local NOTIFY_MAX_CHARS = 200
 local WATCH_DEBOUNCE_MS = 100
 
-local T = require('jean.thread')
+local T = require('jean.threads')
 
 local ns = vim.api.nvim_create_namespace('jean.inline')
 local augroup = vim.api.nvim_create_augroup('jean.inline', { clear = true })

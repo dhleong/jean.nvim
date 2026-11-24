@@ -107,7 +107,7 @@ t.test('two queued threads in one buffer: each reply lands in its own thread', f
   ask(3, 'about three')
   back_to(win)
 
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local a, b = unpack(T.list())
   local provider = Fake.instances[1]
   t.eq(1, #provider.prompts)
@@ -152,7 +152,7 @@ t.test('replying in a thread adds an exchange to it only, shown in its float', f
   -- g/ on a line with a thread replies in it
   ask(1, 'second')
   back_to(win)
-  local a, b = unpack(require('jean.thread').list())
+  local a, b = unpack(require('jean.threads').list())
   t.eq(true, vim.startswith(provider.prompts[3], ('[jean thread %s ·'):format(a.id)))
   provider:emit({ type = 'text', text = 'answer 2' })
   provider:emit({ type = 'done' })
@@ -204,7 +204,7 @@ local function reply_input_with_history()
   end
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
   require('jean').prompt_inline()
-  return provider, win, require('jean.thread').list()[1]
+  return provider, win, require('jean.threads').list()[1]
 end
 
 t.test('reply input shows the latest exchange above it', function()
@@ -296,7 +296,7 @@ t.test('threads re-attach after the file is rewritten on disk', function()
     ask(row, 'q' .. row)
     back_to(win)
   end
-  local by_text, by_id, gone = unpack(require('jean.thread').list())
+  local by_text, by_id, gone = unpack(require('jean.threads').list())
 
   local lines = { 'new', 'new', 'intro', 'hello world', '- **C2.** Should we ship it now?', 'outro' }
   rewrite(path, lines)
@@ -310,7 +310,7 @@ t.test('threads re-attach after the file is rewritten on disk', function()
   local labels = steady(chips(bufnr))
   table.sort(labels)
   t.eq({ ' … you: q3', ' ⚠ you: q4', ' ⠋ you: q2' }, labels)
-  t.eq(3, #require('jean.thread').list())
+  t.eq(3, #require('jean.threads').list())
 
   -- and attach it again by hand
   vim.api.nvim_win_set_cursor(win, { 6, 0 })
@@ -325,7 +325,7 @@ t.test('threads load from the store when their file is read again', function()
   local win = vim.api.nvim_get_current_win()
   ask(2, 'hi')
   back_to(win)
-  local thread = require('jean.thread').list()[1]
+  local thread = require('jean.threads').list()[1]
   vim.cmd.bwipeout(bufnr)
   t.eq(nil, thread.bufnr)
 
@@ -342,7 +342,7 @@ t.test('overlapping reads through a yielding store bind each thread once', funct
   local win = vim.api.nvim_get_current_win()
   ask(2, 'hi')
   back_to(win)
-  local T = require('jean.thread')
+  local T = require('jean.threads')
   local memory = T.store()
   require('jean').setup({
     thread_store = {
@@ -365,7 +365,7 @@ t.test('overlapping reads through a yielding store bind each thread once', funct
   t.flush()
   t.flush()
 
-  local thread_ns = vim.api.nvim_create_namespace('jean.thread')
+  local thread_ns = vim.api.nvim_create_namespace('jean.threads')
   t.eq(1, #T.list())
   t.eq(1, #vim.api.nvim_buf_get_extmarks(bufnr, thread_ns, 0, -1, {}))
   t.eq(bufnr, T.list()[1].bufnr)
@@ -380,7 +380,7 @@ t.test('a threaded buffer whose file is deleted keeps its lines and threads', fu
   back_to(win)
   os.remove(path)
   vim.cmd.checktime(bufnr)
-  local thread = require('jean.thread').list()[1]
+  local thread = require('jean.threads').list()[1]
   t.eq({ 'a', 'b' }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
   t.eq({ bufnr, false, 2 }, { thread.bufnr, thread.detached, thread.last_row })
   t.eq({ ' ⠋ you: hi' }, steady(chips(bufnr)))
@@ -399,7 +399,7 @@ t.test('an unmodified threaded buffer reloads from disk without a prompt', funct
   vim.cmd.checktime(bufnr)
   t.eq({ 'x', 'a', 'b' }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
   t.eq(false, vim.bo[bufnr].modified)
-  t.eq(3, require('jean.thread').list()[1].last_row)
+  t.eq(3, require('jean.threads').list()[1].last_row)
   teardown()
 end)
 
@@ -425,7 +425,7 @@ t.test('deleting the anchor line detaches the thread and keeps its anchor', func
   local win = vim.api.nvim_get_current_win()
   ask(2, 'hi')
   back_to(win)
-  local thread = require('jean.thread').list()[1]
+  local thread = require('jean.threads').list()[1]
 
   vim.api.nvim_buf_set_lines(bufnr, 1, 2, false, {})
   vim.api.nvim_exec_autocmds('TextChanged', { buffer = bufnr })
@@ -444,8 +444,8 @@ t.test('a second g/ elsewhere leaves the first thread running', function()
   back_to(win)
   local provider = Fake.instances[1]
   t.eq(0, provider.stops)
-  t.eq(2, #require('jean.thread').list())
-  t.eq('running', require('jean.thread').list()[1].exchanges[1].status)
+  t.eq(2, #require('jean.threads').list())
+  t.eq('running', require('jean.threads').list()[1].exchanges[1].status)
   teardown()
 end)
 
@@ -499,7 +499,7 @@ t.test('pi: two threads with the same text each get their own reply', function()
   back_to(win)
   ask(2, 'same\nquestion')
   back_to(win)
-  local a, b = unpack(require('jean.thread').list())
+  local a, b = unpack(require('jean.threads').list())
   t.eq(1, #sent)
   t.eq(true, vim.startswith(sent[1].message, ('[jean thread %s ·'):format(a.id)))
   t.eq(true, vim.endswith(sent[1].message, '\nsame\nquestion'))

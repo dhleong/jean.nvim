@@ -42,7 +42,7 @@
 
 local M = {}
 
-local ns = vim.api.nvim_create_namespace('jean.thread')
+local ns = vim.api.nvim_create_namespace('jean.threads')
 local ANCHOR_MAX = 120
 
 ---@type table<string, Thread>
@@ -53,7 +53,7 @@ local next_id = 0
 function M.store()
   local store = require('jean.config').thread_store
   if not store then
-    store = require('jean.thread.memory'):new()
+    store = require('jean.threads.memory'):new()
     require('jean.config').thread_store = store
   end
   return store
