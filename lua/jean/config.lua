@@ -22,8 +22,8 @@ function M.create_provider(session)
   return require('jean.session.' .. provider)
 end
 
----@type ThreadStore? defaults to an in-memory store, created on first use
-M.thread_store = nil
+---@type ThreadStore
+M.thread_store = require('jean.thread.memory'):new()
 
 M.request_separator = '## Request'
 M.dismiss_window_after_edits = true
