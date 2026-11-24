@@ -1,0 +1,3 @@
+{:tasks
+ {test {:doc "Run the headless nvim specs; optional args filter spec files by name, e.g. `bb test inline`"
+        :task (apply shell "nvim --headless -u NONE -l tests/run.lua" *command-line-args*)}}}

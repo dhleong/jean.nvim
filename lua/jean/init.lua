@@ -13,14 +13,34 @@ end
 function M.submit(prompt)
   local session = require('jean.session').from_buffer()
   session:capture_context_source()
-  local win = require('jean.window').open(session, { startinsert = false })
-  win:append_lines_and_follow(prompt)
-  session:submit_prompt(prompt)
+  require('jean.window').open(session, { startinsert = false })
+  session:submit_prompt(prompt, { echo = true })
 end
 
----Open a floating prompt at the cursor; the response shows as a chip on this line
+---Open a floating prompt at the cursor: a new thread on this line, or a reply
+---in the thread already there
 function M.prompt_inline()
   require('jean.inline').prompt()
+end
+
+---Jump to the next thread in this buffer, wrapping around
+function M.next_thread()
+  require('jean.inline').next_thread()
+end
+
+---Jump to the previous thread in this buffer, wrapping around
+function M.prev_thread()
+  require('jean.inline').prev_thread()
+end
+
+---Pick a thread in the project to jump to, or fill the quickfix list with them
+function M.threads()
+  require('jean.inline').threads()
+end
+
+---Re-attach a detached thread of this buffer to the cursor line
+function M.attach_thread()
+  require('jean.inline').attach_thread()
 end
 
 function M.setup(opts)
@@ -33,7 +53,21 @@ function M.setup(opts)
     end
   end
 
-  -- TODO
+  if opts and opts.thread_store then
+    Config.thread_store = opts.thread_store
+  end
+
+  vim.api.nvim_create_user_command('JeanThreads', function()
+    M.threads()
+  end, { desc = 'Jean: list the threads in this project' })
+
+  vim.api.nvim_create_autocmd('BufReadPost', {
+    group = vim.api.nvim_create_augroup('jean.threads', { clear = true }),
+    desc = 'Jean: load the threads of the file',
+    callback = function(args)
+      require('jean.inline').read_buffer(args.buf)
+    end,
+  })
 end
 
 return M

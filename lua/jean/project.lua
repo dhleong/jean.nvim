@@ -40,6 +40,9 @@ end
 
 local function vim_test(bufnr)
   local test_root = vim.g['test#project_root']
+  if not test_root then
+    return nil
+  end
 
   -- Ensure bufnr *actually* "under" this dir
   local buf_path = vim.api.nvim_buf_get_name(bufnr)
