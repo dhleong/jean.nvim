@@ -2,11 +2,21 @@ local GLOBAL_SESSION_ID = '__GLOBAL__'
 local PI_SOCKET_SESSION_ID = '__PI_SOCKET__'
 
 -- A pi that launched this nvim (pi-editor) passes its RPC socket; then every
--- buffer talks to that pi through one session
+-- buffer under that pi's cwd talks to it through one session. pi-editor may
+-- start nvim in a worktree, so prefer the cwd pi reports (PI_CWD) over nvim's.
 local pi_socket = vim.env.PI_RPC_SOCKET ~= '' and vim.env.PI_RPC_SOCKET or nil
-local pi_socket_pwd = pi_socket and vim.fn.getcwd()
+local pi_socket_pwd = pi_socket and vim.fs.normalize(vim.env.PI_CWD ~= '' and vim.env.PI_CWD or vim.fn.getcwd())
 -- Not inherited by processes nvim spawns
 vim.env.PI_RPC_SOCKET = nil
+vim.env.PI_CWD = nil
+
+---@param bufnr number
+---@return boolean
+local function under_pi_cwd(bufnr)
+  local name = vim.api.nvim_buf_get_name(bufnr)
+  local path = name ~= '' and vim.fs.normalize(vim.fn.fnamemodify(name, ':p')) or vim.fs.normalize(vim.fn.getcwd())
+  return path == pi_socket_pwd or vim.startswith(path, pi_socket_pwd .. '/')
+end
 
 ---@alias JeanPromptResult {success: boolean, error?: string}
 
@@ -406,18 +416,19 @@ function M.global()
 end
 
 function M.from_buffer(bufnr)
-  if pi_socket then
-    return M._get_or_create(PI_SOCKET_SESSION_ID, pi_socket_pwd, pi_socket)
+  local nr = bufnr or 0
+  if nr == 0 then
+    nr = vim.api.nvim_get_current_buf()
   end
 
-  local nr = bufnr or 0
-
+  -- jean's own buffers (the chat window) belong to the session that owns them
   local session_id = vim.b[nr].jean_session_id
-  if session_id then
-    local existing = M._sessions[session_id]
-    if existing then
-      return existing
-    end
+  if session_id and M._sessions[session_id] then
+    return M._sessions[session_id]
+  end
+
+  if pi_socket and under_pi_cwd(nr) then
+    return M._get_or_create(PI_SOCKET_SESSION_ID, pi_socket_pwd, pi_socket)
   end
 
   local root = require 'jean.project'.root_for_buffer(nr)

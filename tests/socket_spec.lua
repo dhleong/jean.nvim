@@ -16,6 +16,7 @@ vim.g['test#project_root'] = project_a
 local in_a = buffer_for(project_a .. '/a.lua')
 local in_cwd = buffer_for(vim.fs.joinpath(cwd, 'b.lua'))
 local plan = buffer_for(vim.fs.joinpath(cwd, '.pi/build/2026-11-23-00-48-16/plan.md'))
+local in_worktree = buffer_for(vim.fs.joinpath(cwd, '.pi/worktrees/build-T3/c.lua'))
 
 t.test('without PI_RPC_SOCKET, sessions follow project roots', function()
   vim.env.PI_RPC_SOCKET = nil
@@ -28,28 +29,53 @@ t.test('without PI_RPC_SOCKET, sessions follow project roots', function()
   t.eq(nil, Fake.instances[1].opts.socket_path)
 end)
 
-t.test('with PI_RPC_SOCKET at load, every buffer maps to one socket session', function()
+t.test('with PI_RPC_SOCKET at load, buffers under pi\'s cwd share one socket session', function()
   vim.env.PI_RPC_SOCKET = SOCKET
   local Fake = t.use_fake_provider()
   local sessions = require('jean.session')
   t.eq(nil, vim.env.PI_RPC_SOCKET)
 
-  local session = sessions.from_buffer(in_a)
+  local session = sessions.from_buffer(in_cwd)
   t.eq('__PI_SOCKET__', session.id)
   t.eq(cwd, session.pwd)
-  t.eq(session, sessions.from_buffer(in_cwd))
   t.eq(session, sessions.from_buffer(plan))
+  t.eq(session, sessions.from_buffer(in_worktree))
   t.eq(session, sessions.from_buffer(require('jean.window')._get_or_create(session).bufnr))
 
   t.eq(1, #Fake.instances)
   t.eq(SOCKET, Fake.instances[1].opts.socket_path)
 end)
 
+t.test('with PI_RPC_SOCKET, a buffer outside pi\'s cwd gets its own session', function()
+  vim.env.PI_RPC_SOCKET = SOCKET
+  local Fake = t.use_fake_provider()
+  local sessions = require('jean.session')
+
+  local other = sessions.from_buffer(in_a)
+  t.eq(project_a, other.id)
+  t.eq(nil, other.socket_path)
+  t.eq(true, other ~= sessions.from_buffer(in_cwd))
+  t.eq(nil, Fake.instances[1].opts.socket_path)
+end)
+
+t.test('PI_CWD sets pi\'s cwd when nvim started elsewhere', function()
+  vim.env.PI_RPC_SOCKET = SOCKET
+  vim.env.PI_CWD = project_a
+  t.use_fake_provider()
+  local sessions = require('jean.session')
+  t.eq(nil, vim.env.PI_CWD)
+
+  local session = sessions.from_buffer(in_a)
+  t.eq('__PI_SOCKET__', session.id)
+  t.eq(project_a, session.pwd)
+  t.eq(true, session ~= sessions.from_buffer(in_cwd))
+end)
+
 t.test('the socket session chat header shows its pwd, not its id', function()
   vim.env.PI_RPC_SOCKET = SOCKET
   t.use_fake_provider()
   local window = require('jean.window')
-  local session = require('jean.session').from_buffer(in_a)
+  local session = require('jean.session').from_buffer(in_cwd)
 
   t.eq('> *Root Dir*: ' .. cwd, vim.api.nvim_buf_get_lines(window._get_or_create(session).bufnr, 0, 1, false)[1])
 end)
