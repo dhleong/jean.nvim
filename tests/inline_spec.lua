@@ -113,7 +113,7 @@ t.test('two queued threads in one buffer: each reply lands in its own thread', f
   t.eq(1, #provider.prompts)
   t.eq(('[jean thread %s · %s · near line 1 · "one"]\nabout one'):format(a.id, a.path), provider.prompts[1])
   t.eq({ { 'about three', 'queued', {} } }, responses(b))
-  t.eq({ ' ⠋ you: about one', ' … you: about three' }, steady(chips(bufnr)))
+  t.eq({ ' ⠋ you: about one', ' ⧗ you: about three' }, steady(chips(bufnr)))
 
   provider:emit({ type = 'text_delta', text = 'reply ' })
   provider:emit({ type = 'text', text = 'reply A', streamed = true })
@@ -309,7 +309,9 @@ t.test('threads re-attach after the file is rewritten on disk', function()
   -- q4 is detached at its old row, which q2 now holds
   local labels = steady(chips(bufnr))
   table.sort(labels)
-  t.eq({ ' … you: q3', ' ⚠ you: q4', ' ⠋ you: q2' }, labels)
+  local expected = { ' ⧗ you: q3', ' ⚠ you: q4', ' ⠋ you: q2' }
+  table.sort(expected)
+  t.eq(expected, labels)
   t.eq(3, #require('jean.threads').list())
 
   -- and attach it again by hand
