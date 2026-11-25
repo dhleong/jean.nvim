@@ -132,4 +132,27 @@ t.test('the echo of a stopped prompt is not mistaken for a foreign run', functio
   t.eq({ { type = 'text', text = 'reply' }, { type = 'done' } }, messages)
 end)
 
+t.test('a prompt held by an extension starts when its batch is released', function()
+  local pi, feed, messages, sent = new_pi()
+  pi:prompt('first')
+  feed(accepted(sent[1]), { type = 'agent_start' }, user('first'))
+  feed({
+    type = 'message_end',
+    message = { role = 'assistant', stopReason = 'error', errorMessage = '429 rate_limit_error', content = {} },
+  }, { type = 'agent_settled' })
+  t.eq({ type = 'done', error = '429 rate_limit_error' }, messages[1])
+
+  -- message-hold swallows the prompt (pi-editor still answers "started"),
+  -- then sends it hours later wrapped in one message with a continuation note
+  pi:prompt('second')
+  feed(accepted(sent[2]))
+  feed(
+    { type = 'agent_start' },
+    user('(Continuing after the usage limit.)\n\n[11:34] second'),
+    assistant('reply'),
+    { type = 'agent_settled' }
+  )
+  t.eq({ { type = 'text', text = 'reply' }, { type = 'done' } }, vim.list_slice(messages, 2))
+end)
+
 t.finish()

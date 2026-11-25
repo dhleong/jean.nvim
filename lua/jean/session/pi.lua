@@ -148,6 +148,15 @@ local function parse(entry, pwd, edit_args, streamed, outcome, on_message)
   end
 end
 
+---Whether a user message carries a prompt jean sent. Usually it's the prompt
+---verbatim, but an extension may hold a prompt and deliver it later inside
+---a bigger message, eg waiting after a usage limit or a network outage.
+---@param text string the user message
+---@param prompt_text string
+local function carries(text, prompt_text)
+  return text == prompt_text or (prompt_text ~= '' and text:find(prompt_text, 1, true) ~= nil)
+end
+
 ---@param content string|{type: string, text?: string}[]
 ---@return string
 local function content_text(content)
@@ -259,9 +268,9 @@ function Pi:_on_record(conn, record)
   elseif user_message then
     local text = content_text(record.message.content)
     local cancelled = vim.iter(ipairs(self._cancelled)):find(function(_, cancelled_text)
-      return cancelled_text == text
+      return carries(text, cancelled_text)
     end)
-    if prompt and text == prompt.text then
+    if prompt and carries(text, prompt.text) then
       self:_finish_foreign()
       prompt.started = true
     elseif cancelled then
